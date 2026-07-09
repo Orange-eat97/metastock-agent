@@ -1,0 +1,15 @@
+python-dotenv
+pydantic
+supabase
+
+openai
+llama-index
+llama-index-llms-openai
+llama-index-embeddings-openai
+llama-index-vector-stores-chroma
+llama-index-embeddings-huggingface
+chromadb
+sentence-transformers
+numpy==1.26.4
+ollama
+openpyxl
