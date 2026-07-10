@@ -10,9 +10,12 @@ from tools.tool_contracts import (
     GenerateExplorerInput,
     GetExplorerInput,
     GetRagLogInput,
+    RepairExplorerInput,
     ReviseExplorerInput,
     RunExplorerInput,
+    ToolError,
     ToolResult,
+    ToolStatus,
 )
 
 
@@ -58,8 +61,12 @@ class ToolRegistry:
             return ToolResult(
                 tool_name=name,
                 ok=False,
-                status="blocked",
+                status=ToolStatus.BLOCKED,
                 message=f"Tool is disabled: {name}",
+                error=ToolError(
+                    code="TOOL_DISABLED",
+                    message=f"The tool `{name}` is currently disabled.",
+                ),
             )
 
         payload = tool.input_model.model_validate(arguments)
@@ -111,7 +118,8 @@ class ToolRegistry:
             ToolDefinition(
                 name="get_rag_log",
                 description=(
-                    "Fetch and display a stored RAG service log by rag_service_logs log_id."
+                    "Fetch and display a stored RAG service log by "
+                    "rag_service_logs log_id."
                 ),
                 input_model=GetRagLogInput,
                 handler=self.explorer_tool_service.get_rag_log,
