@@ -6,6 +6,7 @@ from pathlib import Path
 
 from chat.controller import ChatTurnController
 from chat.models import ChatContext, ChatTurnInput
+from services.automator_client import UnavailableAutomatorClient
 from services.explorer_repository import ExplorerRepository
 from services.rag_client import LocalRagClient
 from tools.explorer_tools import ExplorerToolService
@@ -24,20 +25,19 @@ def build_registry(rag_repo_path: str) -> ToolRegistry:
     explorer_tools = ExplorerToolService(
         review_workflow=workflow,
         explorer_repository=repository,
+        automator_client=UnavailableAutomatorClient(),
     )
     return ToolRegistry(explorer_tool_service=explorer_tools)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Milestone 3 deterministic MetaStock chat harness."
+        description="Milestone 5 deterministic MetaStock chat harness."
     )
     parser.add_argument(
         "--rag-repo",
         default=os.getenv("METASTOCK_RAG_REPO"),
-        help=(
-            "Path to metastock-RAG-LLM. Defaults to METASTOCK_RAG_REPO."
-        ),
+        help="Path to metastock-RAG-LLM. Defaults to METASTOCK_RAG_REPO.",
     )
     parser.add_argument(
         "--explorer-id",
@@ -70,7 +70,7 @@ def main() -> None:
         active_service_log_id=args.service_log_id,
     )
 
-    print("MetaStock Milestone 3 chat harness")
+    print("MetaStock Milestone 5 chat harness")
     print("Type /state to inspect transient IDs or /quit to exit.")
 
     while True:

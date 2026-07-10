@@ -133,5 +133,22 @@ class RunExplorerInput(BaseModel):
     )
     instruments: str = Field(
         default="all",
-        description="Instrument selection. For now usually 'all'.",
+        description=(
+            "Instrument selection. Use 'all' for every instrument or provide "
+            "comma-separated instrument names."
+        ),
     )
+    max_execution_wait_sec: int = Field(
+        default=300,
+        gt=0,
+        description="Maximum seconds to wait for MetaStock execution.",
+    )
+
+
+class RunExplorerOutput(BaseModel):
+    explorer_id: str
+    succeeded: bool
+    message: str
+    started_at: str | None = None
+    finished_at: str | None = None
+    diagnostics: dict[str, Any] = Field(default_factory=dict)

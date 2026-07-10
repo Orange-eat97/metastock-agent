@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from services.automator_client import UnavailableAutomatorClient
 from services.explorer_repository import ExplorerRepository
 from services.rag_client import LocalRagClient
 from tools.explorer_tools import ExplorerToolService
 from tools.tool_registry import ToolRegistry
+from tools.tool_contracts import ToolStatus
 from workflows.explorer_review_workflow import ExplorerReviewWorkflow
 
 
@@ -22,6 +24,7 @@ def build_registry() -> ToolRegistry:
     explorer_tools = ExplorerToolService(
         review_workflow=workflow,
         explorer_repository=repository,
+        automator_client=UnavailableAutomatorClient(),
     )
 
     return ToolRegistry(explorer_tool_service=explorer_tools)
@@ -68,9 +71,7 @@ def main() -> None:
 
     get_explorer_result = registry.execute(
         "get_explorer",
-        {
-            "explorer_id": explorer_id,
-        },
+        {"explorer_id": explorer_id},
     )
 
     print("get_explorer ok:", get_explorer_result.ok)
@@ -97,9 +98,7 @@ def main() -> None:
 
     get_log_result = registry.execute(
         "get_rag_log",
-        {
-            "log_id": service_log_id,
-        },
+        {"log_id": service_log_id},
     )
 
     print("get_rag_log ok:", get_log_result.ok)
@@ -124,7 +123,7 @@ def main() -> None:
             f"Expected {service_log_id}, got {fetched_log['log_id']}."
         )
 
-    print("\n=== STEP 4: DISABLED TOOL SHOULD BE BLOCKED ===")
+    print("\n=== STEP 4: VALID EXPLORER BLOCKED BY UNAVAILABLE CLIENT ===")
 
     run_result = registry.execute(
         "run_explorer_in_metastock",
@@ -139,9 +138,21 @@ def main() -> None:
     print("run_explorer_in_metastock message:", run_result.message)
 
     if run_result.ok:
-        raise RuntimeError("Disabled run_explorer_in_metastock unexpectedly succeeded.")
+        raise RuntimeError("Unavailable AutomatorClient unexpectedly ran Explorer.")
 
-    print("\n=== ALL READ PATH TESTS PASSED ===")
+    if run_result.status is not ToolStatus.BLOCKED:
+        raise RuntimeError(
+            "Expected run_explorer_in_metastock to be BLOCKED, got "
+            f"{run_result.status}."
+        )
+
+    if not run_result.error or run_result.error.code != "AUTOMATOR_NOT_CONFIGURED":
+        raise RuntimeError(
+            "Expected AUTOMATOR_NOT_CONFIGURED, got "
+            f"{run_result.error}."
+        )
+
+    print("\n=== ALL READ AND EXECUTION-GATE TESTS PASSED ===")
 
 
 if __name__ == "__main__":

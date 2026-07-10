@@ -32,14 +32,7 @@ class ToolDefinition:
 
 
 class ToolRegistry:
-    """
-    Registry of LLM-accessible tools.
-
-    The future orchestrator will use this registry to:
-    - present tool schemas to the LLM;
-    - validate tool arguments;
-    - dispatch the selected tool call.
-    """
+    """Registry of LLM-accessible tools."""
 
     def __init__(self, explorer_tool_service: ExplorerToolService):
         self.explorer_tool_service = explorer_tool_service
@@ -128,12 +121,12 @@ class ToolRegistry:
             ToolDefinition(
                 name="run_explorer_in_metastock",
                 description=(
-                    "Run a validated Explorer in MetaStock. Disabled until "
-                    "AutomatorClient is standardized."
+                    "Validate whether a stored Explorer may be run in MetaStock "
+                    "and dispatch it through the configured AutomatorClient."
                 ),
                 input_model=RunExplorerInput,
                 handler=self.explorer_tool_service.run_explorer_in_metastock,
-                enabled=False,
+                enabled=True,
             ),
         ]
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from services.automator_client import UnavailableAutomatorClient
 from services.explorer_repository import ExplorerRepository
 from services.rag_client import LocalRagClient
 from tools.explorer_tools import ExplorerToolService
@@ -22,6 +23,7 @@ def main() -> None:
     explorer_tools = ExplorerToolService(
         review_workflow=workflow,
         explorer_repository=repository,
+        automator_client=UnavailableAutomatorClient(),
     )
 
     registry = ToolRegistry(explorer_tool_service=explorer_tools)

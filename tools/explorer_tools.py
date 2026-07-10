@@ -3,6 +3,12 @@ from __future__ import annotations
 import traceback
 from typing import Any
 
+from services.automator_client import (
+    AutomatorClient,
+    AutomatorExplorerColumn,
+    AutomatorRunRequest,
+    UnavailableAutomatorClient,
+)
 from services.explorer_repository import ExplorerRepository
 from workflows.explorer_review_workflow import (
     ExplorerReviewState,
@@ -22,6 +28,7 @@ from tools.tool_contracts import (
     RepairExplorerOutput,
     ReviseExplorerInput,
     RunExplorerInput,
+    RunExplorerOutput,
     ToolDisplay,
     ToolError,
     ToolResult,
@@ -34,8 +41,8 @@ class ExplorerToolService:
     """
     LLM-facing tool facade.
 
-    The future orchestrator should call this layer, not RagClient or Supabase
-    directly.
+    The orchestrator calls this layer rather than RAG, Supabase, or UI
+    automation internals directly.
     """
 
     def __init__(
@@ -43,9 +50,11 @@ class ExplorerToolService:
         *,
         review_workflow: ExplorerReviewWorkflow,
         explorer_repository: ExplorerRepository,
+        automator_client: AutomatorClient | None = None,
     ):
         self.review_workflow = review_workflow
         self.explorer_repository = explorer_repository
+        self.automator_client = automator_client or UnavailableAutomatorClient()
 
     def generate_explorer(self, payload: GenerateExplorerInput) -> ToolResult:
         try:
@@ -108,13 +117,6 @@ class ExplorerToolService:
             )
 
     def revise_explorer(self, payload: ReviseExplorerInput) -> ToolResult:
-        """
-        Future MITL correction tool.
-
-        Keep this separate from repair_explorer:
-        - repair_explorer = syntax/contract repair
-        - revise_explorer = human-requested strategy change
-        """
         return ToolResult(
             tool_name="revise_explorer",
             ok=False,
@@ -222,29 +224,126 @@ class ExplorerToolService:
 
     def run_explorer_in_metastock(self, payload: RunExplorerInput) -> ToolResult:
         """
-        Future execution tool. Keep blocked until AutomatorClient is standardized.
+        Validate the execution boundary without connecting MetaStock yet.
+
+        Milestone 5 enables this registered tool so it can inspect the Explorer
+        and return the correct gate failure. The injected default client is
+        deliberately unavailable, so no UI automation is executed.
         """
-        return ToolResult(
-            tool_name="run_explorer_in_metastock",
-            ok=False,
-            status=ToolStatus.BLOCKED,
-            message="MetaStock execution is not connected yet.",
-            error=ToolError(
-                code="TOOL_BLOCKED",
-                message=(
-                    "AutomatorClient is not implemented in this agent app yet. "
-                    "Explorer execution should stay disabled for now."
+        try:
+            row = self.explorer_repository.get_explorer(payload.explorer_id)
+            explorer = self._row_to_explorer_dto(row)
+
+            if not explorer.validation.passed:
+                return self._blocked_result(
+                    tool_name="run_explorer_in_metastock",
+                    code="EXPLORER_VALIDATION_FAILED",
+                    message="Explorer validation failed; MetaStock execution is blocked.",
+                    title="Explorer Cannot Be Run",
+                    markdown=(
+                        "The Explorer was not run because validation failed. "
+                        "Repair it before requesting MetaStock execution."
+                    ),
+                    details={
+                        "explorer_id": explorer.explorer_id,
+                        "validation_errors": explorer.validation.errors,
+                    },
+                )
+
+            if not explorer.name.strip() or not explorer.filter_code.strip():
+                return self._blocked_result(
+                    tool_name="run_explorer_in_metastock",
+                    code="EXPLORER_NOT_EXECUTABLE",
+                    message="Explorer is missing required execution content.",
+                    title="Explorer Cannot Be Run",
+                    markdown=(
+                        "The Explorer was not run because its name or filter "
+                        "formula is empty."
+                    ),
+                    details={"explorer_id": explorer.explorer_id},
+                )
+
+            if not self.automator_client.configured:
+                return self._blocked_result(
+                    tool_name="run_explorer_in_metastock",
+                    code="AUTOMATOR_NOT_CONFIGURED",
+                    message="MetaStock execution is not configured yet.",
+                    title="MetaStock Execution Not Connected",
+                    markdown=(
+                        "The Explorer is valid, but it was not run because the "
+                        "AutomatorClient is not connected yet."
+                    ),
+                    details={"explorer_id": explorer.explorer_id},
+                )
+
+            instrument_names, select_all = self._parse_instruments(
+                payload.instruments
+            )
+
+            request = AutomatorRunRequest(
+                explorer_id=explorer.explorer_id,
+                name=explorer.name,
+                description=explorer.description,
+                filter_code=explorer.filter_code,
+                columns=[
+                    AutomatorExplorerColumn(
+                        col_letter=column.col_letter,
+                        col_code=column.col_code,
+                    )
+                    for column in explorer.columns
+                ],
+                instruments=instrument_names,
+                select_all_instruments=select_all,
+                max_execution_wait_sec=payload.max_execution_wait_sec,
+            )
+
+            automator_result = self.automator_client.run_explorer(request)
+            output = RunExplorerOutput(
+                explorer_id=explorer.explorer_id,
+                succeeded=automator_result.succeeded,
+                message=automator_result.message,
+                started_at=automator_result.started_at,
+                finished_at=automator_result.finished_at,
+                diagnostics=automator_result.diagnostics,
+            )
+
+            if not automator_result.succeeded:
+                return ToolResult(
+                    tool_name="run_explorer_in_metastock",
+                    ok=False,
+                    status=ToolStatus.FAILED,
+                    message=automator_result.message,
+                    data=output.model_dump(mode="json"),
+                    error=ToolError(
+                        code="AUTOMATOR_EXECUTION_FAILED",
+                        message=automator_result.message,
+                        details=automator_result.diagnostics,
+                    ),
+                    display=ToolDisplay(
+                        title="MetaStock Execution Failed",
+                        markdown=automator_result.message,
+                        severity="error",
+                    ),
+                )
+
+            return ToolResult(
+                tool_name="run_explorer_in_metastock",
+                ok=True,
+                status=ToolStatus.SUCCESS,
+                message=automator_result.message,
+                data=output.model_dump(mode="json"),
+                display=ToolDisplay(
+                    title="MetaStock Execution Completed",
+                    markdown=automator_result.message,
+                    severity="success",
                 ),
-            ),
-            display=ToolDisplay(
-                title="MetaStock Execution Not Connected",
-                markdown=(
-                    "The Explorer was not run. The execution tool is reserved "
-                    "for the next milestone after AutomatorClient is standardized."
-                ),
-                severity="warning",
-            ),
-        )
+            )
+
+        except Exception as exc:
+            return self._exception_result(
+                tool_name="run_explorer_in_metastock",
+                exc=exc,
+            )
 
     def _state_to_explorer_dto(self, state: ExplorerReviewState) -> ExplorerDTO:
         row = state.explorer_row
@@ -292,6 +391,12 @@ class ExplorerToolService:
 
         columns = self._parse_columns(row.get("col_definitions"))
 
+        final_service_log_id = (
+            self._optional_str(row.get("service_log_id"))
+            if service_log_id is None
+            else service_log_id
+        )
+
         return ExplorerDTO(
             explorer_id=str(row.get("id")),
             explorer_created_at=self._optional_str(row.get("created_at")),
@@ -314,7 +419,7 @@ class ExplorerToolService:
                 else can_repair
             ),
             source=source,
-            service_log_id=service_log_id,
+            service_log_id=final_service_log_id,
             service_log_created_at=service_log_created_at,
         )
 
@@ -342,6 +447,26 @@ class ExplorerToolService:
             )
 
         return columns
+
+    def _parse_instruments(
+        self,
+        value: str,
+    ) -> tuple[list[str] | None, bool]:
+        raw = str(value or "").strip()
+
+        if not raw or raw.lower() in {"all", "all-instruments", "*"}:
+            return None, True
+
+        instruments = [
+            item.strip()
+            for item in raw.split(",")
+            if item.strip()
+        ]
+
+        if not instruments:
+            return None, True
+
+        return instruments, False
 
     def _explorer_display(
         self,
@@ -392,12 +517,37 @@ class ExplorerToolService:
             errors_text,
         ]
 
-        markdown = "\n".join(markdown_parts)
-
         return ToolDisplay(
             title=title,
-            markdown=markdown,
+            markdown="\n".join(markdown_parts),
             severity=severity,
+        )
+
+    def _blocked_result(
+        self,
+        *,
+        tool_name: str,
+        code: str,
+        message: str,
+        title: str,
+        markdown: str,
+        details: dict[str, Any] | None = None,
+    ) -> ToolResult:
+        return ToolResult(
+            tool_name=tool_name,
+            ok=False,
+            status=ToolStatus.BLOCKED,
+            message=message,
+            error=ToolError(
+                code=code,
+                message=message,
+                details=details or {},
+            ),
+            display=ToolDisplay(
+                title=title,
+                markdown=markdown,
+                severity="warning",
+            ),
         )
 
     def _exception_result(self, *, tool_name: str, exc: Exception) -> ToolResult:
