@@ -4,68 +4,148 @@ import argparse
 import os
 from pathlib import Path
 
-from chat.controller import ChatTurnController
-from chat.models import ChatContext, ChatTurnInput
+from chat.controller import (
+    ChatTurnController,
+)
+from chat.models import (
+    ChatContext,
+    ChatTurnInput,
+)
 from services.automator_client import (
     AutomatorClient,
     LocalAutomatorClient,
     UnavailableAutomatorClient,
 )
-from services.explorer_repository import ExplorerRepository
+from services.explorer_repository import (
+    ExplorerRepository,
+)
+from services.explorer_result_repository import (
+    ExplorerResultRepository,
+)
 from services.rag_client import LocalRagClient
-from tools.explorer_tools import ExplorerToolService
+from tools.explorer_tools import (
+    ExplorerToolService,
+)
+from tools.result_tools import (
+    MetaStockResultToolService,
+)
 from tools.tool_registry import ToolRegistry
-from workflows.explorer_review_workflow import ExplorerReviewWorkflow
+from workflows.explorer_review_workflow import (
+    ExplorerReviewWorkflow,
+)
 
 
 def build_registry(
     rag_repo_path: str,
     automator_client: AutomatorClient,
 ) -> ToolRegistry:
-    rag_client = LocalRagClient(rag_repo_path=rag_repo_path)
-    repository = ExplorerRepository(rag_client=rag_client)
+    rag_client = LocalRagClient(
+        rag_repo_path=rag_repo_path
+    )
+
+    explorer_repository = (
+        ExplorerRepository(
+            rag_client=rag_client
+        )
+    )
+    result_repository = (
+        ExplorerResultRepository(
+            rag_client=rag_client
+        )
+    )
+
     workflow = ExplorerReviewWorkflow(
         rag_client=rag_client,
-        explorer_repository=repository,
+        explorer_repository=(
+            explorer_repository
+        ),
     )
+
     explorer_tools = ExplorerToolService(
         review_workflow=workflow,
-        explorer_repository=repository,
-        automator_client=automator_client,
+        explorer_repository=(
+            explorer_repository
+        ),
+        automator_client=(
+            automator_client
+        ),
     )
-    return ToolRegistry(explorer_tool_service=explorer_tools)
+
+    result_tools = (
+        MetaStockResultToolService(
+            automator_client=(
+                automator_client
+            ),
+            result_repository=(
+                result_repository
+            ),
+        )
+    )
+
+    return ToolRegistry(
+        explorer_tool_service=(
+            explorer_tools
+        ),
+        result_tool_service=(
+            result_tools
+        ),
+    )
 
 
 def build_automator_client(
     automator_repo_path: str | None,
 ) -> AutomatorClient:
     if not automator_repo_path:
-        return UnavailableAutomatorClient()
+        return (
+            UnavailableAutomatorClient()
+        )
 
     return LocalAutomatorClient(
-        str(Path(automator_repo_path).expanduser().resolve())
+        str(
+            Path(automator_repo_path)
+            .expanduser()
+            .resolve()
+        )
     )
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Milestone 6 deterministic MetaStock chat harness."
+        description=(
+            "Milestone 7 MetaStock chat "
+            "harness with result persistence."
+        )
     )
     parser.add_argument(
         "--rag-repo",
-        default=os.getenv("METASTOCK_RAG_REPO"),
-        help="Path to metastock-RAG-LLM. Defaults to METASTOCK_RAG_REPO.",
+        default=os.getenv(
+            "METASTOCK_RAG_REPO"
+        ),
+        help=(
+            "Path to metastock-RAG-LLM. "
+            "Defaults to METASTOCK_RAG_REPO."
+        ),
     )
     parser.add_argument(
         "--automator-repo",
-        default=os.getenv("METASTOCK_AUTOMATOR_REPO"),
+        default=os.getenv(
+            "METASTOCK_AUTOMATOR_REPO"
+        ),
         help=(
-            "Path containing automator_service.py. "
-            "Defaults to METASTOCK_AUTOMATOR_REPO."
+            "Path containing "
+            "automator_service.py. "
+            "Defaults to "
+            "METASTOCK_AUTOMATOR_REPO."
         ),
     )
-    parser.add_argument("--explorer-id", default=None)
-    parser.add_argument("--service-log-id", default=None)
+    parser.add_argument(
+        "--explorer-id",
+        default=None,
+    )
+    parser.add_argument(
+        "--service-log-id",
+        default=None,
+    )
     return parser.parse_args()
 
 
@@ -74,36 +154,81 @@ def main() -> None:
 
     if not args.rag_repo:
         raise SystemExit(
-            "Provide --rag-repo or set METASTOCK_RAG_REPO."
+            "Provide --rag-repo or set "
+            "METASTOCK_RAG_REPO."
         )
 
-    rag_repo_path = str(Path(args.rag_repo).expanduser().resolve())
-    automator_client = build_automator_client(args.automator_repo)
-    registry = build_registry(rag_repo_path, automator_client)
-    controller = ChatTurnController(registry)
-
-    context = ChatContext(
-        active_explorer_id=args.explorer_id,
-        active_service_log_id=args.service_log_id,
+    rag_repo_path = str(
+        Path(args.rag_repo)
+        .expanduser()
+        .resolve()
+    )
+    automator_client = (
+        build_automator_client(
+            args.automator_repo
+        )
+    )
+    registry = build_registry(
+        rag_repo_path,
+        automator_client,
+    )
+    controller = ChatTurnController(
+        registry
     )
 
-    print("MetaStock Milestone 6 chat harness")
-    print("Automator configured:", automator_client.configured)
-    print("Type /state to inspect transient IDs or /quit to exit.")
+    context = ChatContext(
+        active_explorer_id=(
+            args.explorer_id
+        ),
+        active_service_log_id=(
+            args.service_log_id
+        ),
+    )
+
+    print(
+        "MetaStock Milestone 7 "
+        "chat harness"
+    )
+    print(
+        "Automator configured:",
+        automator_client.configured,
+    )
+    print(
+        "Successful result reads are "
+        "stored in Supabase."
+    )
+    print(
+        "Type /state to inspect "
+        "transient IDs or /quit to exit."
+    )
 
     while True:
         try:
-            message = input("\nYou: ").strip()
-        except (EOFError, KeyboardInterrupt):
+            message = input(
+                "\nYou: "
+            ).strip()
+        except (
+            EOFError,
+            KeyboardInterrupt,
+        ):
             print("\nExiting.")
             return
 
         if not message:
             continue
-        if message.lower() in {"/quit", "/exit"}:
+
+        if message.lower() in {
+            "/quit",
+            "/exit",
+        }:
             return
+
         if message.lower() == "/state":
-            print(context.model_dump_json(indent=2))
+            print(
+                context.model_dump_json(
+                    indent=2
+                )
+            )
             continue
 
         output = controller.handle_turn(
@@ -114,13 +239,19 @@ def main() -> None:
         )
         context = output.context
 
-        print(f"\nRoute: {output.route.value}")
-        print(f"Assistant:\n{output.assistant_message}")
+        print(
+            f"\nRoute: {output.route.value}"
+        )
+        print(
+            "Assistant:\n"
+            f"{output.assistant_message}"
+        )
 
         if output.tool_result is not None:
             print(
                 "\nTool status: "
-                f"{output.tool_result.status.value}; ok={output.tool_result.ok}"
+                f"{output.tool_result.status.value}; "
+                f"ok={output.tool_result.ok}"
             )
 
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ToolStatus(str, Enum):
@@ -22,7 +22,12 @@ class ToolError(BaseModel):
 class ToolDisplay(BaseModel):
     title: str
     markdown: str
-    severity: Literal["info", "success", "warning", "error"] = "info"
+    severity: Literal[
+        "info",
+        "success",
+        "warning",
+        "error",
+    ] = "info"
 
 
 class ToolResult(BaseModel):
@@ -82,7 +87,9 @@ class RepairExplorerInput(BaseModel):
     )
     repair_instruction: str | None = Field(
         default=None,
-        description="Optional repair instruction. Use mainly for syntax/contract repair.",
+        description=(
+            "Optional repair instruction. Use mainly for syntax/contract repair."
+        ),
     )
 
 
@@ -151,4 +158,91 @@ class RunExplorerOutput(BaseModel):
     message: str
     started_at: str | None = None
     finished_at: str | None = None
+    result_available: bool = False
     diagnostics: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def derive_result_available(cls, value: Any) -> Any:
+        """
+        Keep compatibility with the Milestone 6 tool adapter while promoting
+        result availability into a first-class field.
+        """
+        if not isinstance(value, dict):
+            return value
+
+        if "result_available" in value:
+            return value
+
+        diagnostics = value.get("diagnostics")
+        if isinstance(diagnostics, dict):
+            value["result_available"] = bool(
+                diagnostics.get("result_available", False)
+            )
+
+        return value
+
+
+class MetaStockClipboardVerificationDTO(BaseModel):
+    passed: bool
+    expected_count: int
+    scraped_count: int
+    clipboard_count: int
+    missing_from_scrape: list[str] = Field(default_factory=list)
+    unexpected_in_scrape: list[str] = Field(default_factory=list)
+    clipboard_headers: list[str] = Field(default_factory=list)
+
+
+class MetaStockResultRowDTO(BaseModel):
+    row_index: int
+    instrument_name: str
+    symbol: str | None = None
+    column_values: dict[str, str] = Field(default_factory=dict)
+
+
+class MetaStockExplorerResultsDTO(BaseModel):
+    schema_version: Literal["1.0"]
+    outcome: Literal["matches_found", "no_matches"]
+    expected_count: int
+    matched_count: int
+    has_matches: bool
+    clipboard_verification: MetaStockClipboardVerificationDTO | None = None
+    rows: list[MetaStockResultRowDTO] = Field(default_factory=list)
+
+
+class ReadMetaStockResultsInput(BaseModel):
+    explorer_id: str = Field(
+        min_length=1,
+        description=(
+            "explorer_outputs ID associated with the "
+            "currently open MetaStock result window. "
+            "Required so the result artifact can be "
+            "stored without becoming orphaned."
+        ),
+    )
+    close_after_read: bool = Field(
+        default=True,
+        description=(
+            "Close Exploration Execution after rows "
+            "are captured and clipboard-verified."
+        ),
+    )
+
+
+class ReadMetaStockResultsOutput(BaseModel):
+    explorer_id: str
+    result_id: str | None = None
+    stored_at: str | None = None
+    persisted: bool = False
+
+    succeeded: bool
+    message: str
+    started_at: str | None = None
+    finished_at: str | None = None
+
+    results: (
+        MetaStockExplorerResultsDTO | None
+    ) = None
+    diagnostics: dict[str, Any] = Field(
+        default_factory=dict
+    )

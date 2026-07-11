@@ -6,10 +6,12 @@ from typing import Any, Callable, Type
 from pydantic import BaseModel
 
 from tools.explorer_tools import ExplorerToolService
+from tools.result_tools import MetaStockResultToolService
 from tools.tool_contracts import (
     GenerateExplorerInput,
     GetExplorerInput,
     GetRagLogInput,
+    ReadMetaStockResultsInput,
     RepairExplorerInput,
     ReviseExplorerInput,
     RunExplorerInput,
@@ -34,8 +36,18 @@ class ToolDefinition:
 class ToolRegistry:
     """Registry of LLM-accessible tools."""
 
-    def __init__(self, explorer_tool_service: ExplorerToolService):
+    def __init__(
+        self,
+        explorer_tool_service: ExplorerToolService,
+        result_tool_service: MetaStockResultToolService | None = None,
+    ):
         self.explorer_tool_service = explorer_tool_service
+        self.result_tool_service = (
+            result_tool_service
+            or MetaStockResultToolService(
+                automator_client=explorer_tool_service.automator_client
+            )
+        )
         self._tools = self._build_tools()
 
     def list_tools(self) -> list[ToolDefinition]:
@@ -47,7 +59,11 @@ class ToolRegistry:
 
         return self._tools[name]
 
-    def execute(self, name: str, arguments: dict[str, Any]) -> ToolResult:
+    def execute(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+    ) -> ToolResult:
         tool = self.get_tool(name)
 
         if not tool.enabled:
@@ -71,8 +87,7 @@ class ToolRegistry:
                 name="generate_explorer",
                 description=(
                     "Generate a new MetaStock Explorer from a natural-language "
-                    "trading condition. Use this when the user asks to create, "
-                    "generate, build, or draft a stock screening Explorer."
+                    "trading condition."
                 ),
                 input_model=GenerateExplorerInput,
                 handler=self.explorer_tool_service.generate_explorer,
@@ -82,8 +97,7 @@ class ToolRegistry:
                 name="repair_explorer",
                 description=(
                     "Repair an existing Explorer that has validation or syntax "
-                    "issues. Use this mainly when validation failed or the user "
-                    "asks to fix formula errors."
+                    "issues."
                 ),
                 input_model=RepairExplorerInput,
                 handler=self.explorer_tool_service.repair_explorer,
@@ -93,7 +107,7 @@ class ToolRegistry:
                 name="revise_explorer",
                 description=(
                     "Revise an existing Explorer according to a human strategy "
-                    "change request. Reserved for future MITL correction."
+                    "change request."
                 ),
                 input_model=ReviseExplorerInput,
                 handler=self.explorer_tool_service.revise_explorer,
@@ -102,7 +116,7 @@ class ToolRegistry:
             ToolDefinition(
                 name="get_explorer",
                 description=(
-                    "Fetch and display a stored Explorer by explorer_outputs id."
+                    "Fetch and display a stored Explorer by explorer_outputs ID."
                 ),
                 input_model=GetExplorerInput,
                 handler=self.explorer_tool_service.get_explorer,
@@ -121,11 +135,24 @@ class ToolRegistry:
             ToolDefinition(
                 name="run_explorer_in_metastock",
                 description=(
-                    "Validate whether a stored Explorer may be run in MetaStock "
-                    "and dispatch it through the configured AutomatorClient."
+                    "Validate and run a stored Explorer in MetaStock. The "
+                    "completed result window is left ready for the result-reader "
+                    "tool."
                 ),
                 input_model=RunExplorerInput,
                 handler=self.explorer_tool_service.run_explorer_in_metastock,
+                enabled=True,
+            ),
+            ToolDefinition(
+                name="read_metastock_explorer_results",
+                description=(
+                    "Read, normalize, clipboard-verify, and persist the currently "
+                    "open completed MetaStock Explorer result window."
+                ),
+                input_model=ReadMetaStockResultsInput,
+                handler=(
+                    self.result_tool_service.read_metastock_explorer_results
+                ),
                 enabled=True,
             ),
         ]
