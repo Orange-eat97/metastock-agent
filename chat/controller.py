@@ -122,6 +122,71 @@ class ChatTurnController:
                 context=payload.context,
             )
 
+        if route is ChatRoute.RUN_AND_READ_EXPLORER:
+            explorer_id = payload.context.active_explorer_id
+            if not explorer_id:
+                return self._missing_context(
+                    route=route,
+                    context=payload.context,
+                    message="There is no active Explorer to select, run, and read.",
+                )
+
+            select_output = self._execute(
+                route=ChatRoute.SELECT_METASTOCK_EXPLORER,
+                arguments={
+                    "explorer_id": explorer_id,
+                    "instruments": "all",
+                },
+                context=payload.context,
+            )
+
+            if (
+                select_output.tool_result is None
+                or not select_output.tool_result.ok
+            ):
+                return ChatTurnOutput(
+                    assistant_message=select_output.assistant_message,
+                    route=route,
+                    context=select_output.context,
+                    tool_result=select_output.tool_result,
+                )
+
+            run_output = self._execute(
+                route=ChatRoute.RUN_SELECTED_METASTOCK_EXPLORER,
+                arguments={
+                    "explorer_id": explorer_id,
+                    "instruments": "all",
+                },
+                context=select_output.context,
+            )
+
+            if (
+                run_output.tool_result is None
+                or not run_output.tool_result.ok
+            ):
+                return ChatTurnOutput(
+                    assistant_message=run_output.assistant_message,
+                    route=route,
+                    context=run_output.context,
+                    tool_result=run_output.tool_result,
+                )
+
+            read_output = self._execute(
+                route=ChatRoute.READ_METASTOCK_RESULTS,
+                arguments={
+                    "explorer_id": explorer_id,
+                    "close_after_read": True,
+                },
+                context=run_output.context,
+            )
+
+            return ChatTurnOutput(
+                assistant_message=read_output.assistant_message,
+                route=route,
+                context=read_output.context,
+                tool_result=read_output.tool_result,
+            )
+
         if route is ChatRoute.RUN_EXPLORER:
             explorer_id = payload.context.active_explorer_id
             if not explorer_id:

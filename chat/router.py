@@ -49,6 +49,16 @@ class DeterministicChatRouter:
                 ),
             ),
             RouteRule(
+                route=ChatRoute.RUN_AND_READ_EXPLORER,
+                patterns=tuple(
+                    re.compile(pattern, flags)
+                    for pattern in (
+                        r"\b(select|load|open)\b.*\b(current|this)?\s*(explorer|exploration)\b.*\b(run|execute|launch|start)\b.*\b(read|capture|scrape|store|persist)\b.*\b(result|results|matches)\b",
+                        r"\b(run|execute|launch|start)\b.*\b(current|this)?\s*(explorer|exploration)\b.*\b(read|capture|scrape|store|persist)\b.*\b(result|results|matches)\b",
+                    )
+                ),
+            ),
+            RouteRule(
                 route=ChatRoute.READ_METASTOCK_RESULTS,
                 patterns=tuple(
                     re.compile(pattern, flags)

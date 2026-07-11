@@ -17,6 +17,7 @@ class ChatRoute(str, Enum):
     # The controller handles it by calling SELECT_METASTOCK_EXPLORER and then
     # RUN_SELECTED_METASTOCK_EXPLORER as two separate tool calls.
     RUN_EXPLORER = "run_current_explorer_sequence"
+    RUN_AND_READ_EXPLORER = "run_current_explorer_and_read_results_sequence"
 
     READ_METASTOCK_RESULTS = "read_metastock_explorer_results"
     FALLBACK = "fallback"
