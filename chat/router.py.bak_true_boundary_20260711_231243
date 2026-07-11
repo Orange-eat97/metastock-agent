@@ -14,12 +14,11 @@ class RouteRule:
 
 class DeterministicChatRouter:
     """
-    Explicit router for the local chat harness.
+    Small, explicit Milestone 3 router.
 
-    Create, select, and run are separate tool-level service boundaries.
-    A high-level user request like "run the current Explorer" is routed to a
-    controller-level composition route, where the controller calls select and
-    run-selected separately.
+    It does not use an LLM, LangGraph, persistence, or direct service access.
+    Route precedence is intentional:
+        log -> repair -> run -> get -> generate -> fallback
     """
 
     def __init__(self) -> None:
@@ -49,51 +48,11 @@ class DeterministicChatRouter:
                 ),
             ),
             RouteRule(
-                route=ChatRoute.READ_METASTOCK_RESULTS,
-                patterns=tuple(
-                    re.compile(pattern, flags)
-                    for pattern in (
-                        r"\b(read|capture|scrape|store|persist)\b.*\b(result|results|matches|matched instruments)\b",
-                        r"\b(show|get)\b.*\b(metastock|explorer)\s*results\b",
-                    )
-                ),
-            ),
-            RouteRule(
-                route=ChatRoute.CREATE_METASTOCK_EXPLORER,
-                patterns=tuple(
-                    re.compile(pattern, flags)
-                    for pattern in (
-                        r"\b(create|add|write)\b.*\b(explorer|exploration)\b.*\b(metastock)\b",
-                        r"\b(push|send)\b.*\b(current explorer)\b.*\b(metastock)\b",
-                    )
-                ),
-            ),
-            RouteRule(
-                route=ChatRoute.SELECT_METASTOCK_EXPLORER,
-                patterns=tuple(
-                    re.compile(pattern, flags)
-                    for pattern in (
-                        r"\b(select|choose|load|open)\b.*\b(current|this|existing)?\s*(explorer|exploration)\b.*\b(metastock)?\b",
-                        r"\bselect\b.*\binstruments?\b",
-                    )
-                ),
-            ),
-            RouteRule(
-                route=ChatRoute.RUN_SELECTED_METASTOCK_EXPLORER,
-                patterns=tuple(
-                    re.compile(pattern, flags)
-                    for pattern in (
-                        r"\b(run|execute|launch|start)\b.*\b(selected)\b.*\b(explorer|exploration)\b",
-                        r"\bstart\b.*\b(selected|loaded)\b.*\bexplorer\b",
-                    )
-                ),
-            ),
-            RouteRule(
                 route=ChatRoute.RUN_EXPLORER,
                 patterns=tuple(
                     re.compile(pattern, flags)
                     for pattern in (
-                        r"\b(run|execute|launch|start)\b.*\b(current|this|existing)?\s*(explorer|exploration)\b.*\b(metastock)?\b",
+                        r"\b(run|execute|launch)\b.*\b(explorer|exploration|metastock)\b",
                         r"\bexplore\s+now\b",
                     )
                 ),
@@ -103,7 +62,7 @@ class DeterministicChatRouter:
                 patterns=tuple(
                     re.compile(pattern, flags)
                     for pattern in (
-                        r"\b(show|get|inspect|view)\b.*\bexplorer\b",
+                        r"\b(show|get|open|inspect|view)\b.*\bexplorer\b",
                         r"\bcurrent\s+explorer\b",
                     )
                 ),

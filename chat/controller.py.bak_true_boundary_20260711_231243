@@ -18,11 +18,20 @@ class ToolRegistryProtocol(Protocol):
 
 class ChatTurnController:
     """
-    Backend chat harness controller.
+    Milestone 3 backend chat harness.
 
-    Create, select, and run are separate tool calls. The controller may compose
-    them for a high-level user command, but the underlying Automator services
-    remain separate.
+    Responsibilities:
+      - classify one message deterministically;
+      - enforce required transient IDs;
+      - call tools only through ToolRegistry.execute(...);
+      - map ToolResult into a chat response;
+      - carry returned durable IDs into the next turn.
+
+    Non-responsibilities:
+      - no LangGraph;
+      - no LLM router;
+      - no chat transcript persistence;
+      - no direct RAG, Supabase, or automator access.
     """
 
     def __init__(
@@ -100,28 +109,6 @@ class ChatTurnController:
                 context=payload.context,
             )
 
-        if route in {
-            ChatRoute.CREATE_METASTOCK_EXPLORER,
-            ChatRoute.SELECT_METASTOCK_EXPLORER,
-            ChatRoute.RUN_SELECTED_METASTOCK_EXPLORER,
-        }:
-            explorer_id = payload.context.active_explorer_id
-            if not explorer_id:
-                return self._missing_context(
-                    route=route,
-                    context=payload.context,
-                    message="There is no active Explorer for this MetaStock action.",
-                )
-
-            return self._execute(
-                route=route,
-                arguments={
-                    "explorer_id": explorer_id,
-                    "instruments": "all",
-                },
-                context=payload.context,
-            )
-
         if route is ChatRoute.RUN_EXPLORER:
             explorer_id = payload.context.active_explorer_id
             if not explorer_id:
@@ -131,69 +118,19 @@ class ChatTurnController:
                     message="There is no active Explorer to run.",
                 )
 
-            # Intentional composition at the controller layer:
-            # 1. select existing Explorer/instruments;
-            # 2. run the currently selected Explorer.
-            # These remain two separate ToolRegistry calls.
-            select_output = self._execute(
-                route=ChatRoute.SELECT_METASTOCK_EXPLORER,
-                arguments={
-                    "explorer_id": explorer_id,
-                    "instruments": "all",
-                },
-                context=payload.context,
-            )
-
-            if (
-                select_output.tool_result is None
-                or not select_output.tool_result.ok
-            ):
-                return ChatTurnOutput(
-                    assistant_message=select_output.assistant_message,
-                    route=route,
-                    context=select_output.context,
-                    tool_result=select_output.tool_result,
-                )
-
-            run_output = self._execute(
-                route=ChatRoute.RUN_SELECTED_METASTOCK_EXPLORER,
-                arguments={
-                    "explorer_id": explorer_id,
-                    "instruments": "all",
-                },
-                context=select_output.context,
-            )
-
-            return ChatTurnOutput(
-                assistant_message=run_output.assistant_message,
-                route=route,
-                context=run_output.context,
-                tool_result=run_output.tool_result,
-            )
-
-        if route is ChatRoute.READ_METASTOCK_RESULTS:
-            explorer_id = payload.context.active_explorer_id
-            if not explorer_id:
-                return self._missing_context(
-                    route=route,
-                    context=payload.context,
-                    message="There is no active Explorer to attach the results to.",
-                )
-
             return self._execute(
                 route=route,
                 arguments={
                     "explorer_id": explorer_id,
-                    "close_after_read": True,
+                    "instruments": "all",
                 },
                 context=payload.context,
             )
 
         return ChatTurnOutput(
             assistant_message=(
-                "This harness can generate, repair, retrieve, create in "
-                "MetaStock, select in MetaStock, run the selected Explorer, "
-                "read results, or inspect the RAG log."
+                "Milestone 3 can generate, repair, retrieve, inspect the RAG log "
+                "for, or request execution of a MetaStock Explorer."
             ),
             route=ChatRoute.FALLBACK,
             context=payload.context,
@@ -232,6 +169,8 @@ class ChatTurnController:
                 ),
             )
         except Exception as exc:
+            # The controller remains a safe boundary even if registry dispatch
+            # unexpectedly raises instead of returning ToolResult.
             result = ToolResult(
                 tool_name=route.value,
                 ok=False,
