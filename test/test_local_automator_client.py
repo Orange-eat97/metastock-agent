@@ -4,12 +4,13 @@ from pathlib import Path
 
 from services.automator_client import (
     AutomatorExplorerColumn,
+    AutomatorReadResultsRequest,
     AutomatorRunRequest,
     LocalAutomatorClient,
 )
 
 
-FAKE_SERVICE_SOURCE = '''
+CONSOLIDATED_SERVICE_SOURCE = """
 from dataclasses import dataclass, field
 
 @dataclass(frozen=True)
@@ -29,37 +30,99 @@ class AutomatorExecutionRequest:
     max_execution_wait_sec: int = 300
 
 @dataclass(frozen=True)
-class Result:
+class AutomatorResultReadRequest:
+    explorer_id: str | None = None
+    close_after_read: bool = True
+
+@dataclass(frozen=True)
+class RunResult:
     succeeded: bool
     message: str
     started_at: str
     finished_at: str
+    result_available: bool
+    diagnostics: dict
+
+class Results:
+    def to_dict(self):
+        return {
+            "schema_version": "1.0",
+            "outcome": "matches_found",
+            "expected_count": 1,
+            "matched_count": 1,
+            "has_matches": True,
+            "clipboard_verification": {
+                "passed": True,
+                "expected_count": 1,
+                "scraped_count": 1,
+                "clipboard_count": 1,
+                "missing_from_scrape": [],
+                "unexpected_in_scrape": [],
+                "clipboard_headers": [],
+            },
+            "rows": [
+                {
+                    "row_index": 0,
+                    "instrument_name": "Test Instrument",
+                    "symbol": "TEST.SI",
+                    "column_values": {"A": "1.0"},
+                }
+            ],
+        }
+
+@dataclass(frozen=True)
+class ReadResult:
+    succeeded: bool
+    message: str
+    started_at: str
+    finished_at: str
+    explorer_id: str | None
+    results: object
     diagnostics: dict
 
 class MetaStockAutomatorService:
     def run_explorer(self, request):
-        return Result(
+        return RunResult(
             succeeded=True,
             message=request.name,
-            started_at="start",
-            finished_at="finish",
+            started_at="run-start",
+            finished_at="run-finish",
+            result_available=True,
             diagnostics={
                 "explorer_id": request.explorer_id,
-                "column_count": len(request.columns),
-                "instruments": request.instruments,
             },
         )
-'''
+
+    def read_results(self, request):
+        return ReadResult(
+            succeeded=True,
+            message="read",
+            started_at="read-start",
+            finished_at="read-finish",
+            explorer_id=request.explorer_id,
+            results=Results(),
+            diagnostics={
+                "close_after_read": request.close_after_read,
+            },
+        )
+"""
 
 
-def test_local_client_loads_service_and_maps_contract(tmp_path: Path) -> None:
-    (tmp_path / "automator_service.py").write_text(
-        FAKE_SERVICE_SOURCE,
+def test_client_loads_one_service_module(
+    tmp_path: Path,
+) -> None:
+    (
+        tmp_path / "automator_service.py"
+    ).write_text(
+        CONSOLIDATED_SERVICE_SOURCE,
         encoding="utf-8",
     )
 
-    client = LocalAutomatorClient(str(tmp_path))
-    result = client.run_explorer(
+    client = LocalAutomatorClient(
+        str(tmp_path)
+    )
+
+    run_result = client.run_explorer(
         AutomatorRunRequest(
             explorer_id="explorer-1",
             name="RSI Test",
@@ -71,16 +134,29 @@ def test_local_client_loads_service_and_maps_contract(tmp_path: Path) -> None:
                     col_code="RSI(14)",
                 )
             ],
-            instruments=["SGX"],
-            select_all_instruments=False,
         )
     )
 
-    assert client.configured is True
-    assert result.succeeded is True
-    assert result.message == "RSI Test"
-    assert result.started_at == "start"
-    assert result.finished_at == "finish"
-    assert result.diagnostics["explorer_id"] == "explorer-1"
-    assert result.diagnostics["column_count"] == 1
-    assert result.diagnostics["instruments"] == ["SGX"]
+    assert run_result.succeeded is True
+    assert (
+        run_result.result_available
+        is True
+    )
+
+    read_result = client.read_results(
+        AutomatorReadResultsRequest(
+            explorer_id="explorer-1",
+            close_after_read=True,
+        )
+    )
+
+    assert read_result.succeeded is True
+    assert read_result.results is not None
+    assert (
+        read_result.results.matched_count
+        == 1
+    )
+    assert (
+        read_result.results.rows[0].symbol
+        == "TEST.SI"
+    )
