@@ -6,7 +6,7 @@ from services.rag_client import LocalRagClient
 from tools.explorer_tools import ExplorerToolService
 from tools.tool_registry import ToolRegistry
 from tools.tool_contracts import ToolStatus
-from workflows.explorer_review_workflow import ExplorerReviewWorkflow
+from agent_workflows.explorer_review_workflow import ExplorerReviewWorkflow
 
 
 RAG_REPO_PATH = r"C:\GitHub\metastock-RAG-LLM"

@@ -10,7 +10,7 @@ from services.automator_client import (
     UnavailableAutomatorClient,
 )
 from services.explorer_repository import ExplorerRepository
-from workflows.explorer_review_workflow import (
+from agent_workflows.explorer_review_workflow import (
     ExplorerReviewState,
     ExplorerReviewWorkflow,
 )
