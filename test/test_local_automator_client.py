@@ -81,16 +81,49 @@ class ReadResult:
     diagnostics: dict
 
 class MetaStockAutomatorService:
-    def run_explorer(self, request):
+    def _result(
+        self,
+        boundary,
+        request,
+        *,
+        result_available,
+    ):
         return RunResult(
             succeeded=True,
-            message=request.name,
-            started_at="run-start",
-            finished_at="run-finish",
-            result_available=True,
+            message=boundary,
+            started_at=f"{boundary}-start",
+            finished_at=f"{boundary}-finish",
+            result_available=result_available,
             diagnostics={
+                "boundary": boundary,
                 "explorer_id": request.explorer_id,
             },
+        )
+
+    def create_explorer(self, request):
+        return self._result(
+            "create_explorer",
+            request,
+            result_available=False,
+        )
+
+    def select_explorer(self, request):
+        return self._result(
+            "select_explorer",
+            request,
+            result_available=False,
+        )
+
+    def run_selected_explorer(self, request):
+        return self._result(
+            "run_selected_explorer",
+            request,
+            result_available=True,
+        )
+
+    def run_explorer(self, request):
+        raise AssertionError(
+            "Composite run_explorer must not be called."
         )
 
     def read_results(self, request):
@@ -102,10 +135,27 @@ class MetaStockAutomatorService:
             explorer_id=request.explorer_id,
             results=Results(),
             diagnostics={
-                "close_after_read": request.close_after_read,
+                "close_after_read": (
+                    request.close_after_read
+                ),
             },
         )
 """
+
+
+def build_request() -> AutomatorRunRequest:
+    return AutomatorRunRequest(
+        explorer_id="explorer-1",
+        name="RSI Test",
+        description="Test",
+        filter_code="RSI(14) < 30",
+        columns=[
+            AutomatorExplorerColumn(
+                col_letter="A",
+                col_code="RSI(14)",
+            )
+        ],
+    )
 
 
 def test_client_loads_one_service_module(
@@ -121,26 +171,67 @@ def test_client_loads_one_service_module(
     client = LocalAutomatorClient(
         str(tmp_path)
     )
+    request = build_request()
 
-    run_result = client.run_explorer(
-        AutomatorRunRequest(
-            explorer_id="explorer-1",
-            name="RSI Test",
-            description="Test",
-            filter_code="RSI(14) < 30",
-            columns=[
-                AutomatorExplorerColumn(
-                    col_letter="A",
-                    col_code="RSI(14)",
-                )
-            ],
-        )
+    create_result = client.create_explorer(
+        request
+    )
+    assert create_result.succeeded is True
+    assert (
+        create_result.result_available
+        is False
+    )
+    assert (
+        create_result.diagnostics[
+            "boundary"
+        ]
+        == "create_explorer"
     )
 
+    select_result = client.select_explorer(
+        request
+    )
+    assert select_result.succeeded is True
+    assert (
+        select_result.result_available
+        is False
+    )
+    assert (
+        select_result.diagnostics[
+            "boundary"
+        ]
+        == "select_explorer"
+    )
+
+    run_result = (
+        client.run_selected_explorer(
+            request
+        )
+    )
     assert run_result.succeeded is True
     assert (
         run_result.result_available
         is True
+    )
+    assert (
+        run_result.diagnostics[
+            "boundary"
+        ]
+        == "run_selected_explorer"
+    )
+
+    composite_result = (
+        client.run_explorer(request)
+    )
+    assert (
+        composite_result.succeeded
+        is False
+    )
+    assert (
+        composite_result.diagnostics[
+            "boundary"
+        ]
+        == "run_explorer"
     )
 
     read_result = client.read_results(

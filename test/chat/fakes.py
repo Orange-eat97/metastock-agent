@@ -2,15 +2,27 @@ from __future__ import annotations
 
 from typing import Any
 
-from tools.tool_contracts import ToolDisplay, ToolResult, ToolStatus
+from tools.tool_contracts import (
+    ToolDisplay,
+    ToolResult,
+    ToolStatus,
+)
 
 
 class FakeRegistry:
     def __init__(self) -> None:
-        self.calls: list[tuple[str, dict[str, Any]]] = []
+        self.calls: list[
+            tuple[str, dict[str, Any]]
+        ] = []
 
-    def execute(self, name: str, arguments: dict[str, Any]) -> ToolResult:
-        self.calls.append((name, arguments))
+    def execute(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+    ) -> ToolResult:
+        self.calls.append(
+            (name, arguments)
+        )
 
         if name == "generate_explorer":
             return ToolResult(
@@ -20,14 +32,23 @@ class FakeRegistry:
                 message="generated",
                 data={
                     "explorer": {
-                        "explorer_id": "explorer-new",
-                        "service_log_id": "log-new",
+                        "explorer_id": (
+                            "explorer-new"
+                        ),
+                        "service_log_id": (
+                            "log-new"
+                        ),
                     },
                     "retrieved_refs": [],
                 },
                 display=ToolDisplay(
-                    title="Generated Explorer",
-                    markdown="Generated explorer markdown",
+                    title=(
+                        "Generated Explorer"
+                    ),
+                    markdown=(
+                        "Generated explorer "
+                        "markdown"
+                    ),
                     severity="success",
                 ),
             )
@@ -40,10 +61,16 @@ class FakeRegistry:
                 message="repaired",
                 data={
                     "explorer": {
-                        "explorer_id": "explorer-repaired",
-                        "service_log_id": "log-repaired",
+                        "explorer_id": (
+                            "explorer-repaired"
+                        ),
+                        "service_log_id": (
+                            "log-repaired"
+                        ),
                     },
-                    "repaired_from_explorer_id": arguments["explorer_id"],
+                    "repaired_from_explorer_id": (
+                        arguments["explorer_id"]
+                    ),
                 },
             )
 
@@ -55,8 +82,14 @@ class FakeRegistry:
                 message="fetched",
                 data={
                     "explorer": {
-                        "explorer_id": arguments["explorer_id"],
-                        "service_log_id": "log-existing",
+                        "explorer_id": (
+                            arguments[
+                                "explorer_id"
+                            ]
+                        ),
+                        "service_log_id": (
+                            "log-existing"
+                        ),
                     }
                 },
             )
@@ -67,15 +100,31 @@ class FakeRegistry:
                 ok=True,
                 status=ToolStatus.SUCCESS,
                 message="log fetched",
-                data={"log_id": arguments["log_id"]},
+                data={
+                    "log_id": arguments[
+                        "log_id"
+                    ]
+                },
             )
 
-        if name == "run_explorer_in_metastock":
+        if name in {
+            "create_explorer_in_metastock",
+            "select_explorer_in_metastock",
+            (
+                "run_selected_explorer_"
+                "in_metastock"
+            ),
+        }:
             return ToolResult(
                 tool_name=name,
                 ok=False,
                 status=ToolStatus.BLOCKED,
-                message="Tool is disabled: run_explorer_in_metastock",
+                message=(
+                    "MetaStock automation is "
+                    "not configured."
+                ),
             )
 
-        raise ValueError(f"Unknown tool: {name}")
+        raise ValueError(
+            f"Unknown tool: {name}"
+        )

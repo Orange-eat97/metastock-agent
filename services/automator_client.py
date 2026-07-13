@@ -104,16 +104,38 @@ class AutomatorReadResultsResult(BaseModel):
         default_factory=dict
     )
 
-
 class AutomatorClient(Protocol):
     @property
     def configured(self) -> bool:
+        ...
+
+    def create_explorer(
+        self,
+        request: AutomatorRunRequest,
+    ) -> AutomatorRunResult:
+        ...
+
+    def select_explorer(
+        self,
+        request: AutomatorRunRequest,
+    ) -> AutomatorRunResult:
+        ...
+
+    def run_selected_explorer(
+        self,
+        request: AutomatorRunRequest,
+    ) -> AutomatorRunResult:
         ...
 
     def run_explorer(
         self,
         request: AutomatorRunRequest,
     ) -> AutomatorRunResult:
+        """
+        Compatibility entry point.
+
+        Implementations must keep this composite operation disabled.
+        """
         ...
 
     def read_results(
@@ -122,18 +144,52 @@ class AutomatorClient(Protocol):
     ) -> AutomatorReadResultsResult:
         ...
 
-
 class UnavailableAutomatorClient:
     @property
     def configured(self) -> bool:
         return False
 
+    def _raise_unavailable(self) -> None:
+        raise RuntimeError(
+            "Automator execution is not configured."
+        )
+
+    def create_explorer(
+        self,
+        request: AutomatorRunRequest,
+    ) -> AutomatorRunResult:
+        self._raise_unavailable()
+
+    def select_explorer(
+        self,
+        request: AutomatorRunRequest,
+    ) -> AutomatorRunResult:
+        self._raise_unavailable()
+
+    def run_selected_explorer(
+        self,
+        request: AutomatorRunRequest,
+    ) -> AutomatorRunResult:
+        self._raise_unavailable()
+
     def run_explorer(
         self,
         request: AutomatorRunRequest,
     ) -> AutomatorRunResult:
-        raise RuntimeError(
-            "Automator execution is not configured."
+        return AutomatorRunResult(
+            succeeded=False,
+            message=(
+                "Composite run_explorer() is "
+                "disabled."
+            ),
+            result_available=False,
+            diagnostics={
+                "boundary": "run_explorer",
+                "disabled_reason": (
+                    "create/select/run must remain "
+                    "separate"
+                ),
+            },
         )
 
     def read_results(
@@ -144,7 +200,6 @@ class UnavailableAutomatorClient:
             "MetaStock result reading is not "
             "configured."
         )
-
 
 class LocalAutomatorClient:
     """
@@ -214,58 +269,44 @@ class LocalAutomatorClient:
     def configured(self) -> bool:
         return True
 
-    def run_explorer(
+    def _build_service_execution_request(
         self,
         request: AutomatorRunRequest,
+    ) -> Any:
+        return self._execution_request_type(
+            explorer_id=request.explorer_id,
+            name=request.name,
+            description=request.description,
+            filter_code=request.filter_code,
+            columns=[
+                self._execution_column_type(
+                    col_letter=column.col_letter,
+                    col_code=column.col_code,
+                )
+                for column in request.columns
+            ],
+            instruments=request.instruments,
+            select_all_instruments=(
+                request.select_all_instruments
+            ),
+            max_execution_wait_sec=(
+                request.max_execution_wait_sec
+            ),
+        )
+
+
+    @staticmethod
+    def _to_automator_run_result(
+        result: Any,
     ) -> AutomatorRunResult:
-        service_request = (
-            self._execution_request_type(
-                explorer_id=(
-                    request.explorer_id
-                ),
-                name=request.name,
-                description=(
-                    request.description
-                ),
-                filter_code=(
-                    request.filter_code
-                ),
-                columns=[
-                    self._execution_column_type(
-                        col_letter=(
-                            column.col_letter
-                        ),
-                        col_code=(
-                            column.col_code
-                        ),
-                    )
-                    for column in (
-                        request.columns
-                    )
-                ],
-                instruments=(
-                    request.instruments
-                ),
-                select_all_instruments=(
-                    request
-                    .select_all_instruments
-                ),
-                max_execution_wait_sec=(
-                    request
-                    .max_execution_wait_sec
-                ),
-            )
-        )
-
-        result = self._service.run_explorer(
-            service_request
-        )
-
-        diagnostics = self._dict_or_wrapped(
-            getattr(
-                result,
-                "diagnostics",
-                {},
+        diagnostics = (
+            LocalAutomatorClient
+            ._dict_or_wrapped(
+                getattr(
+                    result,
+                    "diagnostics",
+                    {},
+                )
             )
         )
         result_available = bool(
@@ -275,6 +316,7 @@ class LocalAutomatorClient:
                 False,
             )
         )
+
         diagnostics.setdefault(
             "result_available",
             result_available,
@@ -283,24 +325,114 @@ class LocalAutomatorClient:
         return AutomatorRunResult(
             succeeded=bool(result.succeeded),
             message=str(result.message),
-            started_at=self._optional_str(
-                getattr(
-                    result,
-                    "started_at",
-                    None,
+            started_at=(
+                LocalAutomatorClient
+                ._optional_str(
+                    getattr(
+                        result,
+                        "started_at",
+                        None,
+                    )
                 )
             ),
-            finished_at=self._optional_str(
-                getattr(
-                    result,
-                    "finished_at",
-                    None,
+            finished_at=(
+                LocalAutomatorClient
+                ._optional_str(
+                    getattr(
+                        result,
+                        "finished_at",
+                        None,
+                    )
                 )
             ),
-            result_available=(
-                result_available
-            ),
+            result_available=result_available,
             diagnostics=diagnostics,
+        )
+
+
+    def _call_execution_boundary(
+        self,
+        method_name: str,
+        request: AutomatorRunRequest,
+    ) -> AutomatorRunResult:
+        service_method = getattr(
+            self._service,
+            method_name,
+            None,
+        )
+
+        if not callable(service_method):
+            raise RuntimeError(
+                "MetaStockAutomatorService does not "
+                f"expose {method_name}()."
+            )
+
+        service_request = (
+            self._build_service_execution_request(
+                request
+            )
+        )
+        result = service_method(service_request)
+
+        return self._to_automator_run_result(
+            result
+        )
+
+
+    def create_explorer(
+        self,
+        request: AutomatorRunRequest,
+    ) -> AutomatorRunResult:
+        return self._call_execution_boundary(
+            "create_explorer",
+            request,
+        )
+
+
+    def select_explorer(
+        self,
+        request: AutomatorRunRequest,
+    ) -> AutomatorRunResult:
+        return self._call_execution_boundary(
+            "select_explorer",
+            request,
+        )
+
+
+    def run_selected_explorer(
+        self,
+        request: AutomatorRunRequest,
+    ) -> AutomatorRunResult:
+        return self._call_execution_boundary(
+            "run_selected_explorer",
+            request,
+        )
+
+
+    def run_explorer(
+        self,
+        request: AutomatorRunRequest,
+    ) -> AutomatorRunResult:
+        """
+        Keep the legacy composite method present for compatibility, but
+        never delegate it to the Automator service.
+        """
+        return AutomatorRunResult(
+            succeeded=False,
+            message=(
+                "Composite run_explorer() is disabled. "
+                "The caller must use create_explorer(), "
+                "select_explorer(), and "
+                "run_selected_explorer() separately."
+            ),
+            result_available=False,
+            diagnostics={
+                "boundary": "run_explorer",
+                "disabled_reason": (
+                    "create/select/run must remain "
+                    "separate"
+                ),
+            },
         )
 
     def read_results(
@@ -485,102 +617,3 @@ class LocalAutomatorClient:
             return None
 
         return str(value)
-
-# ============================================================
-# TRUE SERVICE BOUNDARY PATCH
-# ============================================================
-
-def _m7_build_service_execution_request(self, request: AutomatorRunRequest):
-    return self._execution_request_type(
-        explorer_id=request.explorer_id,
-        name=request.name,
-        description=request.description,
-        filter_code=request.filter_code,
-        columns=[
-            self._execution_column_type(
-                col_letter=column.col_letter,
-                col_code=column.col_code,
-            )
-            for column in request.columns
-        ],
-        instruments=request.instruments,
-        select_all_instruments=request.select_all_instruments,
-        max_execution_wait_sec=request.max_execution_wait_sec,
-    )
-
-
-def _m7_to_automator_run_result(result) -> AutomatorRunResult:
-    diagnostics = LocalAutomatorClient._dict_or_wrapped(
-        getattr(result, "diagnostics", {})
-    )
-    result_available = bool(getattr(result, "result_available", False))
-    diagnostics.setdefault("result_available", result_available)
-
-    return AutomatorRunResult(
-        succeeded=bool(result.succeeded),
-        message=str(result.message),
-        started_at=LocalAutomatorClient._optional_str(
-            getattr(result, "started_at", None)
-        ),
-        finished_at=LocalAutomatorClient._optional_str(
-            getattr(result, "finished_at", None)
-        ),
-        result_available=result_available,
-        diagnostics=diagnostics,
-    )
-
-
-def _m7_call_boundary_service(
-    self,
-    method_name: str,
-    request: AutomatorRunRequest,
-) -> AutomatorRunResult:
-    service_request = self._m7_build_service_execution_request(request)
-    method = getattr(self._service, method_name)
-    return _m7_to_automator_run_result(method(service_request))
-
-
-def _m7_create_explorer(self, request: AutomatorRunRequest) -> AutomatorRunResult:
-    return self._m7_call_boundary_service("create_explorer", request)
-
-
-def _m7_select_explorer(self, request: AutomatorRunRequest) -> AutomatorRunResult:
-    return self._m7_call_boundary_service("select_explorer", request)
-
-
-def _m7_run_selected_explorer(self, request: AutomatorRunRequest) -> AutomatorRunResult:
-    return self._m7_call_boundary_service("run_selected_explorer", request)
-
-
-def _m7_composite_run_explorer_disabled(
-    self,
-    request: AutomatorRunRequest,
-) -> AutomatorRunResult:
-    return AutomatorRunResult(
-        succeeded=False,
-        message=(
-            "Composite run_explorer() is disabled. The chat controller must "
-            "call select_explorer() and run_selected_explorer() separately."
-        ),
-        result_available=False,
-        diagnostics={
-            "boundary": "run_explorer",
-            "disabled_reason": "create/select/run must remain separate",
-        },
-    )
-
-
-def _m7_unavailable_boundary(self, request: AutomatorRunRequest) -> AutomatorRunResult:
-    raise RuntimeError("Automator execution is not configured.")
-
-
-LocalAutomatorClient._m7_build_service_execution_request = _m7_build_service_execution_request
-LocalAutomatorClient._m7_call_boundary_service = _m7_call_boundary_service
-LocalAutomatorClient.create_explorer = _m7_create_explorer
-LocalAutomatorClient.select_explorer = _m7_select_explorer
-LocalAutomatorClient.run_selected_explorer = _m7_run_selected_explorer
-LocalAutomatorClient.run_explorer = _m7_composite_run_explorer_disabled
-
-UnavailableAutomatorClient.create_explorer = _m7_unavailable_boundary
-UnavailableAutomatorClient.select_explorer = _m7_unavailable_boundary
-UnavailableAutomatorClient.run_selected_explorer = _m7_unavailable_boundary

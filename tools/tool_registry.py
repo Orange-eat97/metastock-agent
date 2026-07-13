@@ -133,14 +133,42 @@ class ToolRegistry:
                 enabled=True,
             ),
             ToolDefinition(
-                name="run_explorer_in_metastock",
+                name="create_explorer_in_metastock",
                 description=(
-                    "Validate and run a stored Explorer in MetaStock. The "
-                    "completed result window is left ready for the result-reader "
-                    "tool."
+                    "Create a stored Explorer in MetaStock only. "
+                    "This does not select or run it."
                 ),
                 input_model=RunExplorerInput,
-                handler=self.explorer_tool_service.run_explorer_in_metastock,
+                handler=(
+                    self.explorer_tool_service
+                    .create_explorer_in_metastock
+                ),
+                enabled=True,
+            ),
+            ToolDefinition(
+                name="select_explorer_in_metastock",
+                description=(
+                    "Select an existing Explorer and instruments "
+                    "in MetaStock only. This does not create or run it."
+                ),
+                input_model=RunExplorerInput,
+                handler=(
+                    self.explorer_tool_service
+                    .select_explorer_in_metastock
+                ),
+                enabled=True,
+            ),
+            ToolDefinition(
+                name="run_selected_explorer_in_metastock",
+                description=(
+                    "Run the currently selected Explorer in MetaStock. "
+                    "Selection must already have completed."
+                ),
+                input_model=RunExplorerInput,
+                handler=(
+                    self.explorer_tool_service
+                    .run_selected_explorer_in_metastock
+                ),
                 enabled=True,
             ),
             ToolDefinition(
@@ -158,55 +186,3 @@ class ToolRegistry:
         ]
 
         return {tool.name: tool for tool in tools}
-
-# ============================================================
-# TRUE SERVICE BOUNDARY PATCH
-# ============================================================
-
-_M7_ORIGINAL_BUILD_TOOLS = ToolRegistry._build_tools
-
-
-def _m7_build_tools(self) -> dict[str, ToolDefinition]:
-    tools = _M7_ORIGINAL_BUILD_TOOLS(self)
-
-    # Remove the old composite tool from the public registry.
-    tools.pop("run_explorer_in_metastock", None)
-
-    tools["create_explorer_in_metastock"] = ToolDefinition(
-        name="create_explorer_in_metastock",
-        description=(
-            "Create a stored Explorer in MetaStock only. This does not "
-            "select or run it."
-        ),
-        input_model=RunExplorerInput,
-        handler=self.explorer_tool_service.create_explorer_in_metastock,
-        enabled=True,
-    )
-
-    tools["select_explorer_in_metastock"] = ToolDefinition(
-        name="select_explorer_in_metastock",
-        description=(
-            "Select an existing Explorer and instruments in MetaStock only. "
-            "This does not create or run it."
-        ),
-        input_model=RunExplorerInput,
-        handler=self.explorer_tool_service.select_explorer_in_metastock,
-        enabled=True,
-    )
-
-    tools["run_selected_explorer_in_metastock"] = ToolDefinition(
-        name="run_selected_explorer_in_metastock",
-        description=(
-            "Run the currently selected Explorer in MetaStock. This assumes "
-            "selection has already happened and leaves the completed result "
-            "window open."
-        ),
-        input_model=RunExplorerInput,
-        handler=self.explorer_tool_service.run_selected_explorer_in_metastock,
-        enabled=True,
-    )
-
-    return tools
-
-
-ToolRegistry._build_tools = _m7_build_tools
