@@ -1,16 +1,14 @@
 from __future__ import annotations
 
 import traceback
+from typing import Any, Protocol
 
 from services.automator_client import (
     AutomatorClient,
     AutomatorReadResultsRequest,
     UnavailableAutomatorClient,
 )
-from services.explorer_result_repository import (
-    ExplorerResultRepositoryProtocol,
-    UnavailableExplorerResultRepository,
-)
+
 from tools.tool_contracts import (
     MetaStockExplorerResultsDTO,
     ReadMetaStockResultsInput,
@@ -21,6 +19,45 @@ from tools.tool_contracts import (
     ToolStatus,
 )
 
+
+class ExplorerResultClientProtocol(Protocol):
+    """
+    Controlled result persistence and retrieval boundary.
+
+    LocalRagClient implements this protocol. Tests may inject a fake
+    without loading the sibling RAG repository.
+    """
+
+    def save_explorer_result(
+        self,
+        *,
+        explorer_id: str,
+        result_payload: dict[str, Any],
+        capture_started_at: str | None,
+        capture_finished_at: str | None,
+        diagnostics: dict[str, Any],
+    ) -> dict[str, Any]:
+        ...
+
+    def get_explorer_result(
+        self,
+        result_id: str,
+    ) -> dict[str, Any]:
+        ...
+
+    def get_latest_explorer_result(
+        self,
+        explorer_id: str,
+    ) -> dict[str, Any] | None:
+        ...
+
+    def list_explorer_results(
+        self,
+        explorer_id: str,
+        *,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        ...
 
 class MetaStockResultToolService:
     """
@@ -41,8 +78,8 @@ class MetaStockResultToolService:
         automator_client: (
             AutomatorClient | None
         ) = None,
-        result_repository: (
-            ExplorerResultRepositoryProtocol
+        result_client: (
+            ExplorerResultClientProtocol
             | None
         ) = None,
         display_row_limit: int = 50,
@@ -51,10 +88,7 @@ class MetaStockResultToolService:
             automator_client
             or UnavailableAutomatorClient()
         )
-        self.result_repository = (
-            result_repository
-            or UnavailableExplorerResultRepository()
-        )
+        self.result_client = result_client
         self.display_row_limit = max(
             1,
             display_row_limit,
@@ -82,7 +116,7 @@ class MetaStockResultToolService:
                 ),
             )
 
-        if not self.result_repository.configured:
+        if self.result_client is None:
             return self._blocked_result(
                 code=(
                     "RESULT_PERSISTENCE_NOT_CONFIGURED"
@@ -96,8 +130,8 @@ class MetaStockResultToolService:
                 ),
                 markdown=(
                     "The result window was not read "
-                    "because a successful read must be "
-                    "stored in Supabase."
+                    "because no RAG result client was "
+                    "supplied."
                 ),
             )
 
@@ -199,8 +233,8 @@ class MetaStockResultToolService:
 
             try:
                 stored = (
-                    self.result_repository
-                    .save_result(
+                    self.result_client
+                    .save_explorer_result(
                         explorer_id=(
                             payload.explorer_id
                         ),
@@ -217,6 +251,17 @@ class MetaStockResultToolService:
                             result.diagnostics
                         ),
                     )
+                )
+
+                (
+                    stored_result_id,
+                    stored_explorer_id,
+                    stored_at,
+                ) = self._stored_result_metadata(
+                    stored,
+                    fallback_explorer_id=(
+                        payload.explorer_id
+                    ),
                 )
 
             except Exception as exc:
@@ -293,15 +338,13 @@ class MetaStockResultToolService:
 
             message = (
                 f"{result.message} Stored result "
-                f"artifact {stored.result_id}."
+                f"artifact {stored_result_id}."
             )
 
             output = ReadMetaStockResultsOutput(
-                explorer_id=(
-                    stored.explorer_id
-                ),
-                result_id=stored.result_id,
-                stored_at=stored.created_at,
+                explorer_id=stored_explorer_id,
+                result_id=stored_result_id,
+                stored_at=stored_at,
                 persisted=True,
                 succeeded=True,
                 message=message,
@@ -323,7 +366,7 @@ class MetaStockResultToolService:
                 ),
                 display=self._result_display(
                     results=parsed_results,
-                    result_id=stored.result_id,
+                    result_id=stored_result_id,
                 ),
             )
 
@@ -353,6 +396,64 @@ class MetaStockResultToolService:
                     severity="error",
                 ),
             )
+
+    @staticmethod
+    def _stored_result_metadata(
+        stored: Any,
+        *,
+        fallback_explorer_id: str,
+    ) -> tuple[str, str, str | None]:
+        """
+        Validate the narrow response returned by LocalRagClient.
+        """
+        if not isinstance(stored, dict):
+            raise TypeError(
+                "The RAG result client returned an "
+                "unsupported persistence response: "
+                f"{type(stored).__name__}."
+            )
+
+        result_id = str(
+            stored.get("result_id")
+            or ""
+        ).strip()
+
+        if not result_id:
+            raise RuntimeError(
+                "The RAG result client returned no "
+                "result_id."
+            )
+
+        explorer_id = str(
+            stored.get("explorer_id")
+            or fallback_explorer_id
+            or ""
+        ).strip()
+
+        if not explorer_id:
+            raise RuntimeError(
+                "The RAG result client returned no "
+                "explorer_id."
+            )
+
+        raw_created_at = stored.get(
+            "created_at"
+        )
+
+        created_at = (
+            str(raw_created_at).strip()
+            if raw_created_at is not None
+            else None
+        )
+
+        if created_at == "":
+            created_at = None
+
+        return (
+            result_id,
+            explorer_id,
+            created_at,
+        )
 
     def _result_display(
         self,

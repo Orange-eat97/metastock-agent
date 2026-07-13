@@ -1,14 +1,13 @@
 from __future__ import annotations
 
+from typing import Any
+
 from services.automator_client import (
     AutomatorClipboardVerification,
     AutomatorExplorerResults,
     AutomatorReadResultsRequest,
     AutomatorReadResultsResult,
     AutomatorResultRow,
-)
-from services.explorer_result_repository import (
-    StoredExplorerResult,
 )
 from tools.result_tools import (
     MetaStockResultToolService,
@@ -56,27 +55,32 @@ class FakeAutomatorClient:
                         ),
                         symbol="TEST.SI",
                         column_values={
-                            "A": "1.0"
+                            "A": "1.0",
                         },
                     )
                 ],
             ),
             diagnostics={
-                "capture": "verified"
+                "capture": "verified",
             },
         )
 
 
-class FakeRepository:
-    def __init__(self, fail=False):
+class FakeResultClient:
+    def __init__(
+        self,
+        *,
+        fail: bool = False,
+    ) -> None:
         self.fail = fail
-        self.payload = None
+        self.payload: (
+            dict[str, Any] | None
+        ) = None
 
-    @property
-    def configured(self) -> bool:
-        return True
-
-    def save_result(self, **kwargs):
+    def save_explorer_result(
+        self,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
         self.payload = kwargs
 
         if self.fail:
@@ -84,22 +88,43 @@ class FakeRepository:
                 "Supabase unavailable"
             )
 
-        return StoredExplorerResult(
-            result_id="result-1",
-            explorer_id=(
-                kwargs["explorer_id"]
-            ),
-            created_at="created",
-        )
+        return {
+            "result_id": "result-1",
+            "explorer_id": kwargs[
+                "explorer_id"
+            ],
+            "created_at": "created",
+        }
+
+    def get_explorer_result(
+        self,
+        result_id: str,
+    ) -> dict[str, Any]:
+        raise NotImplementedError
+
+    def get_latest_explorer_result(
+        self,
+        explorer_id: str,
+    ) -> dict[str, Any] | None:
+        raise NotImplementedError
+
+    def list_explorer_results(
+        self,
+        explorer_id: str,
+        *,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        raise NotImplementedError
 
 
-def test_result_tool_persists_before_success() -> None:
-    repository = FakeRepository()
+def test_result_tool_persists_through_client() -> None:
+    result_client = FakeResultClient()
+
     service = MetaStockResultToolService(
         automator_client=(
             FakeAutomatorClient()
         ),
-        result_repository=repository,
+        result_client=result_client,
     )
 
     result = (
@@ -118,21 +143,24 @@ def test_result_tool_persists_before_success() -> None:
         result.data["result_id"]
         == "result-1"
     )
+
+    assert result_client.payload is not None
+
     assert (
-        repository.payload[
+        result_client.payload[
             "result_payload"
         ]["rows"][0]["symbol"]
         == "TEST.SI"
     )
 
 
-def test_persistence_failure_keeps_rows_in_data() -> None:
+def test_persistence_failure_keeps_rows() -> None:
     service = MetaStockResultToolService(
         automator_client=(
             FakeAutomatorClient()
         ),
-        result_repository=(
-            FakeRepository(fail=True)
+        result_client=FakeResultClient(
+            fail=True
         ),
     )
 
@@ -147,14 +175,45 @@ def test_persistence_failure_keeps_rows_in_data() -> None:
 
     assert result.ok is False
     assert result.status is ToolStatus.FAILED
+    assert result.error is not None
+
     assert (
         result.error.code
         == "RESULT_PERSISTENCE_FAILED"
     )
+
     assert result.data["persisted"] is False
+
     assert (
         result.data["results"]["rows"][0][
             "symbol"
         ]
         == "TEST.SI"
+    )
+
+
+def test_missing_result_client_blocks_before_read() -> None:
+    service = MetaStockResultToolService(
+        automator_client=(
+            FakeAutomatorClient()
+        ),
+        result_client=None,
+    )
+
+    result = (
+        service
+        .read_metastock_explorer_results(
+            ReadMetaStockResultsInput(
+                explorer_id="explorer-1"
+            )
+        )
+    )
+
+    assert result.ok is False
+    assert result.status is ToolStatus.BLOCKED
+    assert result.error is not None
+
+    assert (
+        result.error.code
+        == "RESULT_PERSISTENCE_NOT_CONFIGURED"
     )
