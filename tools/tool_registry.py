@@ -39,14 +39,13 @@ class ToolRegistry:
     def __init__(
         self,
         explorer_tool_service: ExplorerToolService,
-        result_tool_service: MetaStockResultToolService | None = None,
-    ):
-        self.explorer_tool_service = explorer_tool_service
+        result_tool_service: MetaStockResultToolService,
+    ) -> None:
+        self.explorer_tool_service = (
+            explorer_tool_service
+        )
         self.result_tool_service = (
             result_tool_service
-            or MetaStockResultToolService(
-                automator_client=explorer_tool_service.automator_client
-            )
         )
         self._tools = self._build_tools()
 

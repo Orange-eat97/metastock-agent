@@ -17,6 +17,7 @@ from infrastructure.agent_state import (
 from infrastructure.agent_state.tool_call_repository import (
     ToolCallRepository,
 )
+from services import rag_client
 from services.automator_client import (
     AutomatorClient,
     LocalAutomatorClient,
@@ -36,6 +37,10 @@ from tools.tool_registry import ToolRegistry
 from agent_workflows.explorer_review_workflow import (
     ExplorerReviewWorkflow,
 )
+from tools.result_tools import (
+    MetaStockResultToolService,
+)
+
 
 def build_registry(
     rag_repo_path: str,
@@ -67,8 +72,14 @@ def build_registry(
         automator_client=automator_client,
     )
 
+    result_tools = MetaStockResultToolService(
+        automator_client=automator_client,
+        result_client=rag_client,
+    )
+
     return ToolRegistry(
         explorer_tool_service=explorer_tools,
+        result_tool_service=result_tools,
     )
 
 def build_automator_client(

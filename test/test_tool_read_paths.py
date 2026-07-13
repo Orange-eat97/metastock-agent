@@ -7,14 +7,23 @@ from tools.explorer_tools import ExplorerToolService
 from tools.tool_registry import ToolRegistry
 from tools.tool_contracts import ToolStatus
 from agent_workflows.explorer_review_workflow import ExplorerReviewWorkflow
-
+from tools.result_tools import (
+    MetaStockResultToolService,
+)
 
 RAG_REPO_PATH = r"C:\GitHub\metastock-RAG-LLM"
 
-
 def build_registry() -> ToolRegistry:
-    rag_client = LocalRagClient(rag_repo_path=RAG_REPO_PATH)
-    repository = ExplorerRepository(rag_client=rag_client)
+    rag_client = LocalRagClient(
+        rag_repo_path=RAG_REPO_PATH
+    )
+    automator_client = (
+        UnavailableAutomatorClient()
+    )
+
+    repository = ExplorerRepository(
+        rag_client=rag_client
+    )
 
     workflow = ExplorerReviewWorkflow(
         rag_client=rag_client,
@@ -24,11 +33,18 @@ def build_registry() -> ToolRegistry:
     explorer_tools = ExplorerToolService(
         review_workflow=workflow,
         explorer_repository=repository,
-        automator_client=UnavailableAutomatorClient(),
+        automator_client=automator_client,
     )
 
-    return ToolRegistry(explorer_tool_service=explorer_tools)
+    result_tools = MetaStockResultToolService(
+        automator_client=automator_client,
+        result_client=rag_client,
+    )
 
+    return ToolRegistry(
+        explorer_tool_service=explorer_tools,
+        result_tool_service=result_tools,
+    )
 
 def main() -> None:
     registry = build_registry()
