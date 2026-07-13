@@ -154,6 +154,24 @@ class LocalRagClient:
             self._read_service
             .get_explorer(explorer_id)
         )
+    
+    def resolve_explorer_id_by_name(
+        self,
+        explorer_name: str,
+    ) -> str:
+        """
+        Resolve an exact Explorer name through the RAG read service.
+
+        Matching, normalization, and ambiguity handling remain owned by
+        RagExplorerReadService. This client only exposes the controlled
+        service boundary to the desktop agent.
+        """
+        return (
+            self._read_service
+            .resolve_explorer_id_by_name(
+                explorer_name
+            )
+        )
 
     def get_service_log(
         self,
