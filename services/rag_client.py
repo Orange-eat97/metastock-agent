@@ -182,6 +182,136 @@ class LocalRagClient:
             .get_service_log(log_id)
         )
 
+    def save_explorer_result(
+        self,
+        *,
+        explorer_id: str,
+        result_payload: dict[str, Any],
+        capture_started_at: str | None,
+        capture_finished_at: str | None,
+        diagnostics: dict[str, Any],
+    ) -> dict[str, Any]:
+        """
+        Persist one normalized MetaStock result artifact.
+
+        The agent passes the complete versioned result payload. This
+        adapter translates it into the narrower RAG result-service call.
+        """
+        if not isinstance(
+            result_payload,
+            dict,
+        ):
+            raise ValueError(
+                "result_payload must be a dictionary."
+            )
+
+        rows = result_payload.get("rows") or []
+
+        if not isinstance(rows, list):
+            raise ValueError(
+                "result_payload.rows must be a list."
+            )
+
+        if not isinstance(diagnostics, dict):
+            raise ValueError(
+                "diagnostics must be a dictionary."
+            )
+
+        return (
+            self._result_store_service
+            .save_explorer_results(
+                explorer_id=explorer_id,
+                schema_version=str(
+                    result_payload.get(
+                        "schema_version"
+                    )
+                    or ""
+                ),
+                outcome=str(
+                    result_payload.get("outcome")
+                    or ""
+                ),
+                expected_count=int(
+                    result_payload.get(
+                        "expected_count",
+                        0,
+                    )
+                ),
+                matched_count=int(
+                    result_payload.get(
+                        "matched_count",
+                        0,
+                    )
+                ),
+                has_matches=bool(
+                    result_payload.get(
+                        "has_matches",
+                        False,
+                    )
+                ),
+                clipboard_verification=(
+                    result_payload.get(
+                        "clipboard_verification"
+                    )
+                ),
+                rows=rows,
+                capture_started_at=(
+                    capture_started_at
+                ),
+                capture_finished_at=(
+                    capture_finished_at
+                ),
+                diagnostics=diagnostics,
+            )
+        )
+
+
+    def get_explorer_result(
+        self,
+        result_id: str,
+    ) -> dict[str, Any]:
+        """
+        Load one complete stored result by result ID.
+        """
+        return (
+            self._result_store_service
+            .get_result(result_id)
+        )
+
+
+    def get_latest_explorer_result(
+        self,
+        explorer_id: str,
+    ) -> dict[str, Any] | None:
+        """
+        Load the newest stored result for an Explorer.
+
+        None means the Explorer has no stored results.
+        """
+        return (
+            self._result_store_service
+            .get_latest_result(explorer_id)
+        )
+
+
+    def list_explorer_results(
+        self,
+        explorer_id: str,
+        *,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """
+        List newest-first result summaries for an Explorer.
+        """
+        return (
+            self._result_store_service
+            .list_results(
+                explorer_id,
+                limit=limit,
+            )
+        )
+
+
     def save_explorer_results(
         self,
         *,
@@ -199,25 +329,31 @@ class LocalRagClient:
         capture_finished_at: str | None,
         diagnostics: dict[str, Any],
     ) -> dict[str, Any]:
-        return (
-            self._result_store_service
-            .save_explorer_results(
-                explorer_id=explorer_id,
-                schema_version=schema_version,
-                outcome=outcome,
-                expected_count=expected_count,
-                matched_count=matched_count,
-                has_matches=has_matches,
-                clipboard_verification=(
+        """
+        Temporary compatibility adapter.
+
+        ExplorerResultRepository still calls this older plural method.
+        Step 8 will bypass that repository and use save_explorer_result()
+        directly. Remove this method after the repository is retired.
+        """
+        return self.save_explorer_result(
+            explorer_id=explorer_id,
+            result_payload={
+                "schema_version": schema_version,
+                "outcome": outcome,
+                "expected_count": expected_count,
+                "matched_count": matched_count,
+                "has_matches": has_matches,
+                "clipboard_verification": (
                     clipboard_verification
                 ),
-                rows=rows,
-                capture_started_at=(
-                    capture_started_at
-                ),
-                capture_finished_at=(
-                    capture_finished_at
-                ),
-                diagnostics=diagnostics,
-            )
+                "rows": rows,
+            },
+            capture_started_at=(
+                capture_started_at
+            ),
+            capture_finished_at=(
+                capture_finished_at
+            ),
+            diagnostics=diagnostics,
         )
