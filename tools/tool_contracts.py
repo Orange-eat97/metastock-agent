@@ -246,3 +246,114 @@ class ReadMetaStockResultsOutput(BaseModel):
     diagnostics: dict[str, Any] = Field(
         default_factory=dict
     )
+
+class GetExplorerResultInput(BaseModel):
+    result_id: str = Field(
+        min_length=1,
+        description=(
+            "Primary key of a stored "
+            "explorer_result_sets result."
+        ),
+    )
+
+
+class GetLatestExplorerResultInput(BaseModel):
+    explorer_id: str = Field(
+        min_length=1,
+        description=(
+            "Explorer ID whose newest stored "
+            "result should be returned."
+        ),
+    )
+
+
+class ListExplorerResultsInput(BaseModel):
+    explorer_id: str = Field(
+        min_length=1,
+        description=(
+            "Explorer ID whose stored result "
+            "history should be listed."
+        ),
+    )
+    limit: int = Field(
+        default=20,
+        ge=1,
+        le=100,
+    )
+
+class StoredMetaStockExplorerResultDTO(BaseModel):
+    result_id: str
+    explorer_id: str
+    created_at: str | None = None
+
+    schema_version: Literal["1.0"]
+    outcome: Literal[
+        "matches_found",
+        "no_matches",
+    ]
+
+    expected_count: int
+    matched_count: int
+    has_matches: bool
+
+    clipboard_verified: bool | None = None
+    clipboard_verification: (
+        MetaStockClipboardVerificationDTO | None
+    ) = None
+
+    rows: list[
+        MetaStockResultRowDTO
+    ] = Field(default_factory=list)
+
+    capture_started_at: str | None = None
+    capture_finished_at: str | None = None
+
+    diagnostics: dict[str, Any] = Field(
+        default_factory=dict
+    )
+
+
+class MetaStockExplorerResultSummaryDTO(
+    BaseModel
+):
+    result_id: str
+    explorer_id: str
+    created_at: str | None = None
+
+    schema_version: Literal["1.0"]
+    outcome: Literal[
+        "matches_found",
+        "no_matches",
+    ]
+
+    expected_count: int
+    matched_count: int
+    has_matches: bool
+
+    clipboard_verified: bool | None = None
+
+    capture_started_at: str | None = None
+    capture_finished_at: str | None = None
+
+
+
+class GetExplorerResultOutput(BaseModel):
+    result: StoredMetaStockExplorerResultDTO
+
+
+
+class GetLatestExplorerResultOutput(BaseModel):
+    explorer_id: str
+    found: bool
+    result: (
+        StoredMetaStockExplorerResultDTO | None
+    ) = None
+
+
+
+class ListExplorerResultsOutput(BaseModel):
+    explorer_id: str
+    count: int
+    results: list[
+        MetaStockExplorerResultSummaryDTO
+    ] = Field(default_factory=list)

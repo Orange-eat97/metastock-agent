@@ -7,10 +7,14 @@ from pydantic import BaseModel
 
 from tools.explorer_tools import ExplorerToolService
 from tools.result_tools import MetaStockResultToolService
+
 from tools.tool_contracts import (
     GenerateExplorerInput,
     GetExplorerInput,
+    GetExplorerResultInput,
+    GetLatestExplorerResultInput,
     GetRagLogInput,
+    ListExplorerResultsInput,
     ReadMetaStockResultsInput,
     RepairExplorerInput,
     ReviseExplorerInput,
@@ -179,6 +183,45 @@ class ToolRegistry:
                 input_model=ReadMetaStockResultsInput,
                 handler=(
                     self.result_tool_service.read_metastock_explorer_results
+                ),
+                enabled=True,
+            ),
+            ToolDefinition(
+                name="get_explorer_result",
+                description=(
+                    "Fetch one complete stored MetaStock "
+                    "Explorer result by result ID."
+                ),
+                input_model=GetExplorerResultInput,
+                handler=(
+                    self.result_tool_service
+                    .get_explorer_result
+                ),
+                enabled=True,
+            ),
+            ToolDefinition(
+                name="get_latest_explorer_result",
+                description=(
+                    "Fetch the newest stored MetaStock "
+                    "result for an Explorer."
+                ),
+                input_model=GetLatestExplorerResultInput,
+                handler=(
+                    self.result_tool_service
+                    .get_latest_explorer_result
+                ),
+                enabled=True,
+            ),
+            ToolDefinition(
+                name="list_explorer_results",
+                description=(
+                    "List newest-first stored MetaStock "
+                    "result summaries for an Explorer."
+                ),
+                input_model=ListExplorerResultsInput,
+                handler=(
+                    self.result_tool_service
+                    .list_explorer_results
                 ),
                 enabled=True,
             ),

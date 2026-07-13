@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import traceback
 from typing import Any, Protocol
+from pydantic import ValidationError
 
 from services.automator_client import (
     AutomatorClient,
@@ -17,6 +18,14 @@ from tools.tool_contracts import (
     ToolError,
     ToolResult,
     ToolStatus,
+    GetExplorerResultInput,
+    GetExplorerResultOutput,
+    GetLatestExplorerResultInput,
+    GetLatestExplorerResultOutput,
+    ListExplorerResultsInput,
+    ListExplorerResultsOutput,
+    MetaStockExplorerResultSummaryDTO,
+    StoredMetaStockExplorerResultDTO,
 )
 
 
@@ -396,6 +405,304 @@ class MetaStockResultToolService:
                     severity="error",
                 ),
             )
+        
+    def get_explorer_result(
+        self,
+        payload: GetExplorerResultInput,
+    ) -> ToolResult:
+        tool_name = "get_explorer_result"
+
+        if self.result_client is None:
+            return self._blocked_result(
+                tool_name=tool_name,
+                code=(
+                    "RESULT_PERSISTENCE_NOT_CONFIGURED"
+                ),
+                message=(
+                    "Stored Explorer result retrieval "
+                    "is not configured."
+                ),
+                title="Result Storage Not Connected",
+                markdown=(
+                    "The stored result could not be "
+                    "loaded because no RAG result "
+                    "client was supplied."
+                ),
+            )
+
+        try:
+            raw_result = (
+                self.result_client
+                .get_explorer_result(
+                    payload.result_id
+                )
+            )
+
+            stored_result = (
+                StoredMetaStockExplorerResultDTO
+                .model_validate(raw_result)
+            )
+
+            output = GetExplorerResultOutput(
+                result=stored_result
+            )
+
+            message = (
+                "Loaded stored Explorer result "
+                f"{stored_result.result_id}."
+            )
+
+            return ToolResult(
+                tool_name=tool_name,
+                ok=True,
+                status=ToolStatus.SUCCESS,
+                message=message,
+                data=output.model_dump(
+                    mode="json"
+                ),
+                display=(
+                    self._stored_result_display(
+                        stored_result
+                    )
+                ),
+            )
+
+        except ValidationError as exc:
+            return self._retrieval_failure(
+                tool_name=tool_name,
+                code=(
+                    "STORED_RESULT_SCHEMA_INVALID"
+                ),
+                message=(
+                    "The stored Explorer result did "
+                    "not conform to schema version 1.0."
+                ),
+                exc=exc,
+            )
+
+        except ValueError as exc:
+            return self._retrieval_failure(
+                tool_name=tool_name,
+                code="RESULT_NOT_FOUND",
+                message=str(exc),
+                exc=exc,
+            )
+
+        except Exception as exc:
+            return self._retrieval_failure(
+                tool_name=tool_name,
+                code=type(exc).__name__,
+                message=str(exc),
+                exc=exc,
+            )
+
+
+    def get_latest_explorer_result(
+        self,
+        payload: GetLatestExplorerResultInput,
+    ) -> ToolResult:
+        tool_name = "get_latest_explorer_result"
+
+        if self.result_client is None:
+            return self._blocked_result(
+                tool_name=tool_name,
+                code=(
+                    "RESULT_PERSISTENCE_NOT_CONFIGURED"
+                ),
+                message=(
+                    "Stored Explorer result retrieval "
+                    "is not configured."
+                ),
+                title="Result Storage Not Connected",
+                markdown=(
+                    "The latest result could not be "
+                    "loaded because no RAG result "
+                    "client was supplied."
+                ),
+            )
+
+        try:
+            raw_result = (
+                self.result_client
+                .get_latest_explorer_result(
+                    payload.explorer_id
+                )
+            )
+
+            if raw_result is None:
+                output = (
+                    GetLatestExplorerResultOutput(
+                        explorer_id=(
+                            payload.explorer_id
+                        ),
+                        found=False,
+                        result=None,
+                    )
+                )
+
+                message = (
+                    "No stored results were found for "
+                    f"Explorer {payload.explorer_id}."
+                )
+
+                return ToolResult(
+                    tool_name=tool_name,
+                    ok=True,
+                    status=ToolStatus.SUCCESS,
+                    message=message,
+                    data=output.model_dump(
+                        mode="json"
+                    ),
+                    display=ToolDisplay(
+                        title=(
+                            "Latest MetaStock "
+                            "Explorer Result"
+                        ),
+                        markdown=message,
+                        severity="info",
+                    ),
+                )
+
+            stored_result = (
+                StoredMetaStockExplorerResultDTO
+                .model_validate(raw_result)
+            )
+
+            output = GetLatestExplorerResultOutput(
+                explorer_id=payload.explorer_id,
+                found=True,
+                result=stored_result,
+            )
+
+            message = (
+                "Loaded the latest stored result "
+                f"{stored_result.result_id} for "
+                f"Explorer {payload.explorer_id}."
+            )
+
+            return ToolResult(
+                tool_name=tool_name,
+                ok=True,
+                status=ToolStatus.SUCCESS,
+                message=message,
+                data=output.model_dump(
+                    mode="json"
+                ),
+                display=(
+                    self._stored_result_display(
+                        stored_result
+                    )
+                ),
+            )
+
+        except ValidationError as exc:
+            return self._retrieval_failure(
+                tool_name=tool_name,
+                code=(
+                    "STORED_RESULT_SCHEMA_INVALID"
+                ),
+                message=(
+                    "The latest stored result did not "
+                    "conform to schema version 1.0."
+                ),
+                exc=exc,
+            )
+
+        except Exception as exc:
+            return self._retrieval_failure(
+                tool_name=tool_name,
+                code=type(exc).__name__,
+                message=str(exc),
+                exc=exc,
+            )
+
+
+    def list_explorer_results(
+        self,
+        payload: ListExplorerResultsInput,
+    ) -> ToolResult:
+        tool_name = "list_explorer_results"
+
+        if self.result_client is None:
+            return self._blocked_result(
+                tool_name=tool_name,
+                code=(
+                    "RESULT_PERSISTENCE_NOT_CONFIGURED"
+                ),
+                message=(
+                    "Stored Explorer result listing "
+                    "is not configured."
+                ),
+                title="Result Storage Not Connected",
+                markdown=(
+                    "Result history could not be listed "
+                    "because no RAG result client was "
+                    "supplied."
+                ),
+            )
+
+        try:
+            raw_results = (
+                self.result_client
+                .list_explorer_results(
+                    payload.explorer_id,
+                    limit=payload.limit,
+                )
+            )
+
+            results = [
+                MetaStockExplorerResultSummaryDTO
+                .model_validate(item)
+                for item in raw_results
+            ]
+
+            output = ListExplorerResultsOutput(
+                explorer_id=payload.explorer_id,
+                count=len(results),
+                results=results,
+            )
+
+            message = (
+                f"Loaded {len(results)} stored "
+                "result summaries for Explorer "
+                f"{payload.explorer_id}."
+            )
+
+            return ToolResult(
+                tool_name=tool_name,
+                ok=True,
+                status=ToolStatus.SUCCESS,
+                message=message,
+                data=output.model_dump(
+                    mode="json"
+                ),
+                display=(
+                    self._result_list_display(
+                        output
+                    )
+                ),
+            )
+
+        except ValidationError as exc:
+            return self._retrieval_failure(
+                tool_name=tool_name,
+                code=(
+                    "STORED_RESULT_SCHEMA_INVALID"
+                ),
+                message=(
+                    "A stored result summary did not "
+                    "conform to schema version 1.0."
+                ),
+                exc=exc,
+            )
+
+        except Exception as exc:
+            return self._retrieval_failure(
+                tool_name=tool_name,
+                code=type(exc).__name__,
+                message=str(exc),
+                exc=exc,
+            )
 
     @staticmethod
     def _stored_result_metadata(
@@ -453,6 +760,122 @@ class MetaStockResultToolService:
             result_id,
             explorer_id,
             created_at,
+        )
+
+    def _stored_result_display(
+        self,
+        result: StoredMetaStockExplorerResultDTO,
+    ) -> ToolDisplay:
+        current_result = (
+            MetaStockExplorerResultsDTO(
+                schema_version=(
+                    result.schema_version
+                ),
+                outcome=result.outcome,
+                expected_count=(
+                    result.expected_count
+                ),
+                matched_count=(
+                    result.matched_count
+                ),
+                has_matches=result.has_matches,
+                clipboard_verification=(
+                    result.clipboard_verification
+                ),
+                rows=result.rows,
+            )
+        )
+
+        return self._result_display(
+            results=current_result,
+            result_id=result.result_id,
+        )
+
+
+    @staticmethod
+    def _result_list_display(
+        output: ListExplorerResultsOutput,
+    ) -> ToolDisplay:
+        lines = [
+            (
+                "**Explorer ID:** "
+                f"`{output.explorer_id}`"
+            ),
+            (
+                "**Stored result count:** "
+                f"{output.count}"
+            ),
+        ]
+
+        if output.results:
+            lines.extend(
+                [
+                    "",
+                    "## Stored results",
+                    "",
+                ]
+            )
+
+            for result in output.results:
+                created_at = (
+                    result.created_at
+                    or "<unknown time>"
+                )
+
+                lines.append(
+                    f"- `{result.result_id}` — "
+                    f"{created_at} — "
+                    f"{result.outcome} — "
+                    f"{result.matched_count} matches"
+                )
+        else:
+            lines.extend(
+                [
+                    "",
+                    "No stored results were found.",
+                ]
+            )
+
+        return ToolDisplay(
+            title="MetaStock Explorer Result History",
+            markdown="\n".join(lines),
+            severity="info",
+        )
+
+
+    @staticmethod
+    def _retrieval_failure(
+        *,
+        tool_name: str,
+        code: str,
+        message: str,
+        exc: Exception,
+    ) -> ToolResult:
+        return ToolResult(
+            tool_name=tool_name,
+            ok=False,
+            status=ToolStatus.FAILED,
+            message=message,
+            error=ToolError(
+                code=code,
+                message=message,
+                details={
+                    "error_type": (
+                        type(exc).__name__
+                    ),
+                    "traceback": (
+                        traceback.format_exc()
+                    ),
+                },
+            ),
+            display=ToolDisplay(
+                title=(
+                    "Stored MetaStock Result "
+                    "Retrieval Failed"
+                ),
+                markdown=message,
+                severity="error",
+            ),
         )
 
     def _result_display(
@@ -552,15 +975,16 @@ class MetaStockResultToolService:
     @staticmethod
     def _blocked_result(
         *,
+        tool_name: str = (
+            "read_metastock_explorer_results"
+        ),
         code: str,
         message: str,
         title: str,
         markdown: str,
     ) -> ToolResult:
         return ToolResult(
-            tool_name=(
-                "read_metastock_explorer_results"
-            ),
+            tool_name=tool_name,
             ok=False,
             status=ToolStatus.BLOCKED,
             message=message,
