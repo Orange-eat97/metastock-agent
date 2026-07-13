@@ -78,7 +78,12 @@ class GenerateExplorerInput(BaseModel):
 
 class GenerateExplorerOutput(BaseModel):
     explorer: ExplorerDTO
-    retrieved_refs: list[dict[str, Any]] = Field(default_factory=list)
+    assumptions: list[str] = Field(
+        default_factory=list
+    )
+    retrieved_refs: list[
+        dict[str, Any]
+    ] = Field(default_factory=list)
 
 
 class RepairExplorerInput(BaseModel):
@@ -95,7 +100,12 @@ class RepairExplorerInput(BaseModel):
 
 class RepairExplorerOutput(BaseModel):
     explorer: ExplorerDTO
-    retrieved_refs: list[dict[str, Any]] = Field(default_factory=list)
+    assumptions: list[str] = Field(
+        default_factory=list
+    )
+    retrieved_refs: list[
+        dict[str, Any]
+    ] = Field(default_factory=list)
     repaired_from_explorer_id: str
 
 

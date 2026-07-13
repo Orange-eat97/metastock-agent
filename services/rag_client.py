@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -12,11 +12,24 @@ from dotenv import load_dotenv
 class RagGenerateResult:
     explorer: str
     explorer_created_at: str | None
+
     service_log: str | None
     service_log_created_at: str | None
+
     validation_passed: bool
     validation_errors: list[str]
+
     source: str
+
+    assumptions: list[str] = field(
+        default_factory=list
+    )
+    retrieved_refs: list[
+        dict[str, Any]
+    ] = field(default_factory=list)
+    validation_warnings: list[str] = field(
+        default_factory=list
+    )
 
 
 class LocalRagClient:
@@ -107,10 +120,32 @@ class LocalRagClient:
             validation_passed=(
                 response.validation.passed
             ),
-            validation_errors=(
-                response.validation.errors
-            ),
+            validation_errors=[
+                str(error)
+                for error in response.validation.errors
+            ],
             source=response.source,
+            assumptions=[
+                str(assumption)
+                for assumption
+                in response.assumptions
+            ],
+            retrieved_refs=[
+                (
+                    ref.model_dump(mode="json")
+                    if hasattr(ref, "model_dump")
+                    else dict(ref)
+                )
+                for ref in response.retrieved_refs
+            ],
+            validation_warnings=[
+                str(warning)
+                for warning in getattr(
+                    response.validation,
+                    "warnings",
+                    [],
+                )
+            ],
         )
 
     def repair_explorer(
@@ -140,10 +175,32 @@ class LocalRagClient:
             validation_passed=(
                 response.validation.passed
             ),
-            validation_errors=(
-                response.validation.errors
-            ),
+            validation_errors=[
+                str(error)
+                for error in response.validation.errors
+            ],
             source=response.source,
+            assumptions=[
+                str(assumption)
+                for assumption
+                in response.assumptions
+            ],
+            retrieved_refs=[
+                (
+                    ref.model_dump(mode="json")
+                    if hasattr(ref, "model_dump")
+                    else dict(ref)
+                )
+                for ref in response.retrieved_refs
+            ],
+            validation_warnings=[
+                str(warning)
+                for warning in getattr(
+                    response.validation,
+                    "warnings",
+                    [],
+                )
+            ],
         )
 
     def get_explorer(
@@ -154,7 +211,7 @@ class LocalRagClient:
             self._read_service
             .get_explorer(explorer_id)
         )
-    
+
     def resolve_explorer_id_by_name(
         self,
         explorer_name: str,
@@ -228,7 +285,9 @@ class LocalRagClient:
                     or ""
                 ),
                 outcome=str(
-                    result_payload.get("outcome")
+                    result_payload.get(
+                        "outcome"
+                    )
                     or ""
                 ),
                 expected_count=int(
@@ -265,7 +324,6 @@ class LocalRagClient:
             )
         )
 
-
     def get_explorer_result(
         self,
         result_id: str,
@@ -277,7 +335,6 @@ class LocalRagClient:
             self._result_store_service
             .get_result(result_id)
         )
-
 
     def get_latest_explorer_result(
         self,
@@ -292,7 +349,6 @@ class LocalRagClient:
             self._result_store_service
             .get_latest_result(explorer_id)
         )
-
 
     def list_explorer_results(
         self,

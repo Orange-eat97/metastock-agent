@@ -63,7 +63,13 @@ class ExplorerToolService:
 
             output = GenerateExplorerOutput(
                 explorer=explorer,
-                retrieved_refs=[],
+                assumptions=list(
+                    state.assumptions
+                ),
+                retrieved_refs=[
+                    dict(ref)
+                    for ref in state.retrieved_refs
+                ],
             )
 
             return ToolResult(
@@ -94,8 +100,16 @@ class ExplorerToolService:
 
             output = RepairExplorerOutput(
                 explorer=explorer,
-                retrieved_refs=[],
-                repaired_from_explorer_id=payload.explorer_id,
+                assumptions=list(
+                    state.assumptions
+                ),
+                retrieved_refs=[
+                    dict(ref)
+                    for ref in state.retrieved_refs
+                ],
+                repaired_from_explorer_id=(
+                    payload.explorer_id
+                ),
             )
 
             return ToolResult(
@@ -580,6 +594,9 @@ class ExplorerToolService:
             can_repair=state.can_repair,
             validation_passed=state.validation_passed,
             validation_errors=state.validation_errors,
+            validation_warnings=(
+                state.validation_warnings
+            ),
         )
 
     def _row_to_explorer_dto(
@@ -593,12 +610,35 @@ class ExplorerToolService:
         can_repair: bool | None = None,
         validation_passed: bool | None = None,
         validation_errors: list[str] | None = None,
+        validation_warnings: list[str] | None = None,
     ) -> ExplorerDTO:
-        row_validation_passed = bool(row.get("validation_passed"))
-        row_validation_errors = row.get("validation_errors") or []
+        row_validation_passed = bool(
+            row.get("validation_passed")
+        )
+        row_validation_errors = (
+            row.get("validation_errors")
+            or []
+        )
+        row_validation_warnings = (
+            row.get("validation_warnings")
+            or []
+        )
 
-        if not isinstance(row_validation_errors, list):
-            row_validation_errors = [str(row_validation_errors)]
+        if not isinstance(
+            row_validation_errors,
+            list,
+        ):
+            row_validation_errors = [
+                str(row_validation_errors)
+            ]
+
+        if not isinstance(
+            row_validation_warnings,
+            list,
+        ):
+            row_validation_warnings = [
+                str(row_validation_warnings)
+            ]
 
         final_validation_passed = (
             row_validation_passed
@@ -607,12 +647,34 @@ class ExplorerToolService:
         )
 
         final_validation_errors = (
-            [str(error) for error in row_validation_errors]
+            [
+                str(error)
+                for error in row_validation_errors
+            ]
             if validation_errors is None
-            else [str(error) for error in validation_errors]
+            else [
+                str(error)
+                for error in validation_errors
+            ]
         )
 
-        columns = self._parse_columns(row.get("col_definitions"))
+        final_validation_warnings = (
+            [
+                str(warning)
+                for warning
+                in row_validation_warnings
+            ]
+            if validation_warnings is None
+            else [
+                str(warning)
+                for warning
+                in validation_warnings
+            ]
+        )
+
+        columns = self._parse_columns(
+            row.get("col_definitions")
+        )
 
         final_service_log_id = (
             self._optional_str(row.get("service_log_id"))
@@ -630,6 +692,9 @@ class ExplorerToolService:
             validation=ValidationDTO(
                 passed=final_validation_passed,
                 errors=final_validation_errors,
+                warnings=(
+                    final_validation_warnings
+                ),
             ),
             can_run_in_metastock=(
                 final_validation_passed
@@ -716,6 +781,15 @@ class ExplorerToolService:
         if not errors_text:
             errors_text = "- None."
 
+        warnings_text = "\n".join(
+            f"- {warning}"
+            for warning
+            in explorer.validation.warnings
+        )
+
+        if not warnings_text:
+            warnings_text = "- None."
+
         markdown_parts = [
             f"**Explorer ID:** `{explorer.explorer_id}`  ",
             f"**Created At:** `{explorer.explorer_created_at}`  ",
@@ -738,6 +812,10 @@ class ExplorerToolService:
             "## Validation Errors",
             "",
             errors_text,
+            "",
+            "## Validation Warnings",
+            "",
+            warnings_text,
         ]
 
         return ToolDisplay(
