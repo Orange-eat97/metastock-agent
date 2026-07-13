@@ -1,0 +1,2 @@
+# Add this dependency to the agent repository requirements.txt.
+langgraph

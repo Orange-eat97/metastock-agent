@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from uuid import UUID
 
-from chat.controller import ChatTurnController
+from orchestration.orchestrator import LangGraphOrchestrator
 from chat.durable_cli import DurableChatCli
 from infrastructure.agent_state import (
     AgentStateDatabase,
@@ -126,7 +126,7 @@ def build_conversation_service(
         registry=registry,
         controller_factory=(
             lambda recording_registry:
-            ChatTurnController(
+            LangGraphOrchestrator(
                 recording_registry
             )
         ),
