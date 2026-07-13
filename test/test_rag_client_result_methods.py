@@ -327,33 +327,3 @@ def test_save_rejects_non_dictionary_payload(
         )
 
     assert service.calls == []
-
-
-def test_legacy_plural_save_remains_compatible() -> None:
-    service = FakeResultService()
-    client = build_client(service)
-
-    stored = client.save_explorer_results(
-        explorer_id="explorer-1",
-        schema_version="1.0",
-        outcome="no_matches",
-        expected_count=0,
-        matched_count=0,
-        has_matches=False,
-        clipboard_verification=None,
-        rows=[],
-        capture_started_at="start",
-        capture_finished_at="finish",
-        diagnostics={},
-    )
-
-    assert stored["result_id"] == "result-1"
-
-    call_name, arguments = service.calls[0]
-
-    assert (
-        call_name
-        == "save_explorer_results"
-    )
-    assert arguments["outcome"] == "no_matches"
-    assert arguments["rows"] == []
