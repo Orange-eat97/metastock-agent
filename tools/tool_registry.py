@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Callable, Type
 
 from pydantic import BaseModel
 
 from tools.explorer_tools import ExplorerToolService
 from tools.result_tools import MetaStockResultToolService
-
 from tools.tool_contracts import (
     GenerateExplorerInput,
     GetExplorerInput,
@@ -25,6 +25,19 @@ from tools.tool_contracts import (
 )
 
 
+class ToolExposure(str, Enum):
+    """
+    Which orchestration layer may choose the tool.
+
+    Conversation tools may be selected directly by the model.
+    Workflow-internal tools are selected only by approved deterministic
+    workflow definitions.
+    """
+
+    CONVERSATION = "conversation"
+    WORKFLOW_INTERNAL = "workflow_internal"
+
+
 @dataclass(frozen=True)
 class ToolDefinition:
     name: str
@@ -32,13 +45,16 @@ class ToolDefinition:
     input_model: Type[BaseModel]
     handler: Callable[[Any], ToolResult]
     enabled: bool = True
+    exposure: ToolExposure = (
+        ToolExposure.CONVERSATION
+    )
 
     def input_json_schema(self) -> dict[str, Any]:
         return self.input_model.model_json_schema()
 
 
 class ToolRegistry:
-    """Registry of LLM-accessible tools."""
+    """Validated execution boundary for LLM-accessible capabilities."""
 
     def __init__(
         self,
@@ -56,9 +72,23 @@ class ToolRegistry:
     def list_tools(self) -> list[ToolDefinition]:
         return list(self._tools.values())
 
+    def list_conversation_tools(
+        self,
+    ) -> list[ToolDefinition]:
+        return [
+            tool
+            for tool in self._tools.values()
+            if (
+                tool.exposure
+                is ToolExposure.CONVERSATION
+            )
+        ]
+
     def get_tool(self, name: str) -> ToolDefinition:
         if name not in self._tools:
-            raise ValueError(f"Unknown tool: {name}")
+            raise ValueError(
+                f"Unknown tool: {name}"
+            )
 
         return self._tools[name]
 
@@ -74,117 +104,152 @@ class ToolRegistry:
                 tool_name=name,
                 ok=False,
                 status=ToolStatus.BLOCKED,
-                message=f"Tool is disabled: {name}",
+                message=(
+                    f"Tool is disabled: {name}"
+                ),
                 error=ToolError(
                     code="TOOL_DISABLED",
-                    message=f"The tool `{name}` is currently disabled.",
+                    message=(
+                        f"The tool `{name}` is "
+                        "currently disabled."
+                    ),
                 ),
             )
 
-        payload = tool.input_model.model_validate(arguments)
+        payload = tool.input_model.model_validate(
+            arguments
+        )
         return tool.handler(payload)
 
-    def _build_tools(self) -> dict[str, ToolDefinition]:
+    def _build_tools(
+        self,
+    ) -> dict[str, ToolDefinition]:
         tools = [
             ToolDefinition(
                 name="generate_explorer",
                 description=(
-                    "Generate a new MetaStock Explorer from a natural-language "
-                    "trading condition."
+                    "Generate a new MetaStock Explorer "
+                    "from a natural-language trading "
+                    "condition."
                 ),
                 input_model=GenerateExplorerInput,
-                handler=self.explorer_tool_service.generate_explorer,
-                enabled=True,
+                handler=(
+                    self.explorer_tool_service
+                    .generate_explorer
+                ),
             ),
             ToolDefinition(
                 name="repair_explorer",
                 description=(
-                    "Repair an existing Explorer that has validation or syntax "
-                    "issues."
+                    "Repair syntax or validation issues "
+                    "in an existing Explorer without "
+                    "changing its trading intent."
                 ),
                 input_model=RepairExplorerInput,
-                handler=self.explorer_tool_service.repair_explorer,
-                enabled=True,
+                handler=(
+                    self.explorer_tool_service
+                    .repair_explorer
+                ),
             ),
             ToolDefinition(
                 name="revise_explorer",
                 description=(
-                    "Revise an existing Explorer according to a human strategy "
-                    "change request."
+                    "Revise strategy logic or parameters "
+                    "in an existing Explorer."
                 ),
                 input_model=ReviseExplorerInput,
-                handler=self.explorer_tool_service.revise_explorer,
-                enabled=False,
+                handler=(
+                    self.explorer_tool_service
+                    .revise_explorer
+                ),
+                enabled=True,
             ),
             ToolDefinition(
                 name="get_explorer",
                 description=(
-                    "Fetch and display a stored Explorer by explorer_outputs ID."
+                    "Fetch and display a stored Explorer."
                 ),
                 input_model=GetExplorerInput,
-                handler=self.explorer_tool_service.get_explorer,
-                enabled=True,
+                handler=(
+                    self.explorer_tool_service
+                    .get_explorer
+                ),
             ),
             ToolDefinition(
                 name="get_rag_log",
                 description=(
-                    "Fetch and display a stored RAG service log by "
-                    "rag_service_logs log_id."
+                    "Fetch and display a stored RAG "
+                    "service log."
                 ),
                 input_model=GetRagLogInput,
-                handler=self.explorer_tool_service.get_rag_log,
-                enabled=True,
+                handler=(
+                    self.explorer_tool_service
+                    .get_rag_log
+                ),
             ),
             ToolDefinition(
                 name="create_explorer_in_metastock",
                 description=(
-                    "Create a stored Explorer in MetaStock only. "
-                    "This does not select or run it."
+                    "Create a stored Explorer in "
+                    "MetaStock only."
                 ),
                 input_model=RunExplorerInput,
                 handler=(
                     self.explorer_tool_service
                     .create_explorer_in_metastock
                 ),
-                enabled=True,
+                exposure=(
+                    ToolExposure.WORKFLOW_INTERNAL
+                ),
             ),
             ToolDefinition(
                 name="select_explorer_in_metastock",
                 description=(
-                    "Select an existing Explorer and instruments "
-                    "in MetaStock only. This does not create or run it."
+                    "Select an existing Explorer and "
+                    "instruments in MetaStock only."
                 ),
                 input_model=RunExplorerInput,
                 handler=(
                     self.explorer_tool_service
                     .select_explorer_in_metastock
                 ),
-                enabled=True,
+                exposure=(
+                    ToolExposure.WORKFLOW_INTERNAL
+                ),
             ),
             ToolDefinition(
-                name="run_selected_explorer_in_metastock",
+                name=(
+                    "run_selected_explorer_in_metastock"
+                ),
                 description=(
-                    "Run the currently selected Explorer in MetaStock. "
-                    "Selection must already have completed."
+                    "Run the currently selected Explorer "
+                    "in MetaStock."
                 ),
                 input_model=RunExplorerInput,
                 handler=(
                     self.explorer_tool_service
                     .run_selected_explorer_in_metastock
                 ),
-                enabled=True,
+                exposure=(
+                    ToolExposure.WORKFLOW_INTERNAL
+                ),
             ),
             ToolDefinition(
-                name="read_metastock_explorer_results",
+                name=(
+                    "read_metastock_explorer_results"
+                ),
                 description=(
-                    "Read, normalize, clipboard-verify, and persist the currently "
-                    "open completed MetaStock Explorer result window."
+                    "Read, normalize, verify, and persist "
+                    "the open MetaStock result window."
                 ),
                 input_model=ReadMetaStockResultsInput,
                 handler=(
-                    self.result_tool_service.read_metastock_explorer_results
+                    self.result_tool_service
+                    .read_metastock_explorer_results
                 ),
-                enabled=True,
+                exposure=(
+                    ToolExposure.WORKFLOW_INTERNAL
+                ),
             ),
             ToolDefinition(
                 name="get_explorer_result",
@@ -197,7 +262,6 @@ class ToolRegistry:
                     self.result_tool_service
                     .get_explorer_result
                 ),
-                enabled=True,
             ),
             ToolDefinition(
                 name="get_latest_explorer_result",
@@ -205,12 +269,13 @@ class ToolRegistry:
                     "Fetch the newest stored MetaStock "
                     "result for an Explorer."
                 ),
-                input_model=GetLatestExplorerResultInput,
+                input_model=(
+                    GetLatestExplorerResultInput
+                ),
                 handler=(
                     self.result_tool_service
                     .get_latest_explorer_result
                 ),
-                enabled=True,
             ),
             ToolDefinition(
                 name="list_explorer_results",
@@ -223,8 +288,10 @@ class ToolRegistry:
                     self.result_tool_service
                     .list_explorer_results
                 ),
-                enabled=True,
             ),
         ]
 
-        return {tool.name: tool for tool in tools}
+        return {
+            tool.name: tool
+            for tool in tools
+        }

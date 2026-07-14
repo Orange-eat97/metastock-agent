@@ -5,9 +5,13 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 
-from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.checkpoint.base import (
+    BaseCheckpointSaver,
+)
 
-from agent_workflows.explorer_review_workflow import ExplorerReviewWorkflow
+from agent_workflows.explorer_review_workflow import (
+    ExplorerReviewWorkflow,
+)
 from chat.controller import ChatTurnController
 from infrastructure.agent_state import (
     AgentStateDatabase,
@@ -16,11 +20,24 @@ from infrastructure.agent_state import (
     LangChainHistoryFactory,
     TurnStreamRepository,
 )
-from infrastructure.agent_state.tool_call_repository import ToolCallRepository
-from orchestration.context_resolver import ExplorerReferenceResolverProtocol
-from orchestration.orchestrator import LangGraphOrchestrator
-from orchestration.planner import PlannerProtocol
-from orchestration.response_composer import ResponseComposerProtocol
+from infrastructure.agent_state.tool_call_repository import (
+    ToolCallRepository,
+)
+from orchestration.context_resolver import (
+    ExplorerReferenceResolverProtocol,
+)
+from orchestration.conversation_model import (
+    ConversationDriverProtocol,
+)
+from orchestration.orchestrator import (
+    LangGraphOrchestrator,
+)
+from orchestration.planner import (
+    PlannerProtocol,
+)
+from orchestration.response_composer import (
+    ResponseComposerProtocol,
+)
 from services.automator_client import (
     AutomatorClient,
     LocalAutomatorClient,
@@ -30,12 +47,22 @@ from services.conversation_application_service import (
     ChatControllerProtocol,
     ConversationApplicationService,
 )
-from services.explorer_name_resolver import ExplorerNameResolver
-from services.explorer_repository import ExplorerRepository
+from services.explorer_name_resolver import (
+    ExplorerNameResolver,
+)
+from services.explorer_repository import (
+    ExplorerRepository,
+)
 from services.rag_client import LocalRagClient
-from services.recording_tool_registry import ToolRegistryProtocol
-from tools.explorer_tools import ExplorerToolService
-from tools.result_tools import MetaStockResultToolService
+from services.recording_tool_registry import (
+    ToolRegistryProtocol,
+)
+from tools.explorer_tools import (
+    ExplorerToolService,
+)
+from tools.result_tools import (
+    MetaStockResultToolService,
+)
 from tools.tool_registry import ToolRegistry
 
 
@@ -60,7 +87,9 @@ class BusinessDependencies:
     rag_client: LocalRagClient
     automator_client: AutomatorClient
     registry: ToolRegistry
-    explorer_name_resolver: ExplorerNameResolver
+    explorer_name_resolver: (
+        ExplorerNameResolver
+    )
 
 
 def resolve_orchestrator_mode(
@@ -77,17 +106,22 @@ def resolve_orchestrator_mode(
             OrchestratorMode.LANGGRAPH.value,
         )
     )
-    cleaned = str(raw_value).strip().casefold()
+    cleaned = str(
+        raw_value
+    ).strip().casefold()
 
     try:
-        return OrchestratorMode(cleaned)
+        return OrchestratorMode(
+            cleaned
+        )
     except ValueError as exc:
         allowed = ", ".join(
             mode.value
             for mode in OrchestratorMode
         )
         raise ValueError(
-            f"{ENV_ORCHESTRATOR} must be one of: {allowed}."
+            f"{ENV_ORCHESTRATOR} must be one "
+            f"of: {allowed}."
         ) from exc
 
 
@@ -110,27 +144,26 @@ def build_business_dependencies(
     rag_client = LocalRagClient(
         rag_repo_path=rag_repo_path,
     )
-
     explorer_repository = ExplorerRepository(
         rag_client=rag_client,
     )
-
     review_workflow = ExplorerReviewWorkflow(
         rag_client=rag_client,
-        explorer_repository=explorer_repository,
+        explorer_repository=(
+            explorer_repository
+        ),
     )
-
     explorer_tools = ExplorerToolService(
         review_workflow=review_workflow,
-        explorer_repository=explorer_repository,
+        explorer_repository=(
+            explorer_repository
+        ),
         automator_client=automator_client,
     )
-
     result_tools = MetaStockResultToolService(
         automator_client=automator_client,
         result_client=rag_client,
     )
-
     registry = ToolRegistry(
         explorer_tool_service=explorer_tools,
         result_tool_service=result_tools,
@@ -140,8 +173,10 @@ def build_business_dependencies(
         rag_client=rag_client,
         automator_client=automator_client,
         registry=registry,
-        explorer_name_resolver=ExplorerNameResolver(
-            rag_client
+        explorer_name_resolver=(
+            ExplorerNameResolver(
+                rag_client
+            )
         ),
     )
 
@@ -149,17 +184,26 @@ def build_business_dependencies(
 def build_controller_factory(
     *,
     mode: OrchestratorMode | str,
-    planner: PlannerProtocol | None,
+    conversation_driver: (
+        ConversationDriverProtocol | None
+    ) = None,
+    # Temporary compatibility input for the old structured-planner tests.
+    planner: PlannerProtocol | None = None,
     response_composer: (
         ResponseComposerProtocol | None
     ),
     explorer_name_resolver: (
-        ExplorerReferenceResolverProtocol | None
+        ExplorerReferenceResolverProtocol
+        | None
     ),
-    checkpointer: BaseCheckpointSaver | None,
+    checkpointer: (
+        BaseCheckpointSaver | None
+    ),
     enable_deterministic_fallback: bool = True,
 ) -> ControllerFactory:
-    resolved_mode = resolve_orchestrator_mode(mode)
+    resolved_mode = (
+        resolve_orchestrator_mode(mode)
+    )
 
     if resolved_mode is OrchestratorMode.LEGACY:
         return (
@@ -169,10 +213,14 @@ def build_controller_factory(
             )
         )
 
-    if planner is None:
+    if (
+        conversation_driver is None
+        and planner is None
+    ):
         raise ValueError(
-            "planner is required for the "
-            "langgraph orchestrator."
+            "conversation_driver or planner is "
+            "required for the langgraph "
+            "orchestrator."
         )
 
     if response_composer is None:
@@ -197,6 +245,9 @@ def build_controller_factory(
         lambda recording_registry:
         LangGraphOrchestrator(
             recording_registry,
+            conversation_driver=(
+                conversation_driver
+            ),
             planner=planner,
             response_composer=(
                 response_composer
@@ -219,7 +270,6 @@ def build_conversation_service(
     registry: ToolRegistry,
     controller_factory: ControllerFactory,
 ) -> ConversationApplicationService:
-    """Build the durable conversation service from explicit dependencies."""
     conversations = ConversationRepository(
         database.pool
     )
@@ -239,6 +289,8 @@ def build_conversation_service(
         streams=streams,
         tool_calls=tool_calls,
         registry=registry,
-        controller_factory=controller_factory,
+        controller_factory=(
+            controller_factory
+        ),
         checkpoints=checkpoints,
     )

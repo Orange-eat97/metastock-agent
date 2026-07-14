@@ -10,23 +10,33 @@ class GraphInputState(TypedDict):
 class GraphRuntimeContext(TypedDict):
     """Run-scoped data deliberately excluded from checkpointed state."""
 
-    recent_messages: list[dict[str, Any]]
+    recent_messages: list[
+        dict[str, Any]
+    ]
 
 
 class MetaStockGraphState(
     GraphInputState,
     total=False,
 ):
+    # New production conversational path.
+    conversation_request: dict[str, Any]
+    conversation_response: dict[str, Any]
+
+    # Legacy structured-planner compatibility path.
     planner_request: dict[str, Any]
     decision: dict[str, Any]
-    resolution: dict[str, Any]
 
+    # Shared validated execution path.
+    resolution: dict[str, Any]
     tool_result: dict[str, Any]
     updated_context: dict[str, Any]
 
     workflow_plan: dict[str, Any]
     workflow_index: int
-    workflow_results: list[dict[str, Any]]
+    workflow_results: list[
+        dict[str, Any]
+    ]
     workflow_context: dict[str, Any]
     workflow_complete: bool
     workflow_succeeded: bool

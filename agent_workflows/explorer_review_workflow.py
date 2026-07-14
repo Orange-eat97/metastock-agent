@@ -105,6 +105,33 @@ class ExplorerReviewWorkflow:
             service_log_row=service_log_row,
         )
 
+    def revise_for_review(
+        self,
+        explorer_id: str,
+        revision_instruction: str,
+    ) -> ExplorerReviewState:
+        result = self.rag_client.revise_explorer(
+            explorer_id=explorer_id,
+            revision_instruction=revision_instruction,
+        )
+        explorer_row = (
+            self.explorer_repository
+            .get_explorer(result.explorer)
+        )
+
+        service_log_row = None
+        if result.service_log:
+            service_log_row = (
+                self.explorer_repository
+                .get_service_log(result.service_log)
+            )
+
+        return self._build_review_state(
+            result=result,
+            explorer_row=explorer_row,
+            service_log_row=service_log_row,
+        )
+
     @staticmethod
     def _build_review_state(
         *,

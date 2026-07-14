@@ -1,6 +1,20 @@
+from orchestration.action_policy import (
+    ConversationActionPolicy,
+)
 from orchestration.context_resolver import (
     DecisionContextResolver,
     DecisionResolution,
+)
+from orchestration.conversation_actions import (
+    ConversationActionCall,
+    ConversationActionDefinition,
+    ConversationModelRequest,
+    ConversationModelResponse,
+    build_conversation_actions,
+)
+from orchestration.conversation_model import (
+    ConversationDriverProtocol,
+    OpenAIConversationDriver,
 )
 from orchestration.decisions import (
     OrchestratorDecision,
@@ -36,7 +50,14 @@ from orchestration.workflows import (
     WorkflowStep,
 )
 
+
 __all__ = [
+    "ConversationActionCall",
+    "ConversationActionDefinition",
+    "ConversationActionPolicy",
+    "ConversationDriverProtocol",
+    "ConversationModelRequest",
+    "ConversationModelResponse",
     "DecisionContextResolver",
     "DecisionResolution",
     "DeterministicResponseComposer",
@@ -46,6 +67,7 @@ __all__ = [
     "LangGraphOrchestrator",
     "MAX_WORKFLOW_STEPS",
     "MetaStockGraphState",
+    "OpenAIConversationDriver",
     "OpenAIPlanner",
     "OpenAIResponseComposer",
     "OrchestratorDecision",
@@ -58,4 +80,5 @@ __all__ = [
     "ToolManifestItem",
     "WorkflowPlan",
     "WorkflowStep",
+    "build_conversation_actions",
 ]

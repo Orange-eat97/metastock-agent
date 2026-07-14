@@ -118,6 +118,18 @@ class ReviseExplorerInput(BaseModel):
     )
 
 
+class ReviseExplorerOutput(BaseModel):
+    explorer: ExplorerDTO
+    assumptions: list[str] = Field(
+        default_factory=list
+    )
+    retrieved_refs: list[
+        dict[str, Any]
+    ] = Field(default_factory=list)
+    revised_from_explorer_id: str
+    revision_instruction: str
+
+
 class GetExplorerInput(BaseModel):
     explorer_id: str = Field(
         description="Primary key of the explorer_outputs row to inspect."

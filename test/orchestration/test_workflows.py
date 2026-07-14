@@ -52,18 +52,18 @@ def test_run_and_capture_order() -> None:
     ]
 
 
-def test_model_rejects_more_than_four_steps() -> None:
+def test_model_rejects_more_than_maximum_steps() -> None:
     with pytest.raises(ValidationError):
         WorkflowPlan(
             workflow_name="too_long",
-            route=(
-                ChatRoute.PLANNED_WORKFLOW
-            ),
+            route=ChatRoute.PLANNED_WORKFLOW,
             explorer_id=EXPLORER_ID,
             steps=[
                 WorkflowStep(
                     tool_name=f"tool-{index}"
                 )
-                for index in range(5)
+                for index in range(
+                    MAX_WORKFLOW_STEPS + 1
+                )
             ],
         )

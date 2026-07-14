@@ -27,6 +27,7 @@ from tools.tool_contracts import (
     RepairExplorerInput,
     RepairExplorerOutput,
     ReviseExplorerInput,
+    ReviseExplorerOutput,
     RunExplorerInput,
     RunExplorerOutput,
     ToolDisplay,
@@ -131,28 +132,49 @@ class ExplorerToolService:
             )
 
     def revise_explorer(self, payload: ReviseExplorerInput) -> ToolResult:
-        return ToolResult(
-            tool_name="revise_explorer",
-            ok=False,
-            status=ToolStatus.NOT_IMPLEMENTED,
-            message="Explorer revision is not implemented yet.",
-            error=ToolError(
-                code="TOOL_NOT_IMPLEMENTED",
+        try:
+            state = self.review_workflow.revise_for_review(
+                explorer_id=payload.explorer_id,
+                revision_instruction=(
+                    payload.revision_instruction
+                ),
+            )
+            explorer = self._state_to_explorer_dto(state)
+            output = ReviseExplorerOutput(
+                explorer=explorer,
+                assumptions=list(state.assumptions),
+                retrieved_refs=[
+                    dict(ref)
+                    for ref in state.retrieved_refs
+                ],
+                revised_from_explorer_id=(
+                    payload.explorer_id
+                ),
+                revision_instruction=(
+                    payload.revision_instruction
+                ),
+            )
+
+            return ToolResult(
+                tool_name="revise_explorer",
+                ok=True,
+                status=ToolStatus.SUCCESS,
                 message=(
-                    "revise_explorer is reserved for future MITL correction. "
-                    "Use repair_explorer only for syntax/contract repair."
+                    "Explorer revision completed and "
+                    "saved as a new row."
                 ),
-            ),
-            display=ToolDisplay(
-                title="Revision Not Implemented",
-                markdown=(
-                    "Explorer revision is not implemented yet. "
-                    "This will later support human instructions such as "
-                    "`change RSI threshold to 35` or `use 50-day volume average`."
+                data=output.model_dump(mode="json"),
+                display=self._explorer_display(
+                    title="Revised Explorer",
+                    explorer=explorer,
                 ),
-                severity="warning",
-            ),
-        )
+            )
+
+        except Exception as exc:
+            return self._exception_result(
+                tool_name="revise_explorer",
+                exc=exc,
+            )
 
     def get_explorer(self, payload: GetExplorerInput) -> ToolResult:
         try:
