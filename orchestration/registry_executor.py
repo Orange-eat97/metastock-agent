@@ -22,12 +22,11 @@ class ToolRegistryProtocol(Protocol):
 
 class RegistryToolExecutor:
     """
-    Narrow execution adapter around ToolRegistry.execute(...).
+    Narrow safe adapter around ToolRegistry.execute(...).
 
-    The deterministic parity graph still delegates complete turns to the
-    existing ChatTurnController. This adapter is introduced now so the next
-    MS10 stage can execute planner-selected tools without bypassing the
-    existing registry boundary or duplicating exception translation.
+    The registry remains responsible for Pydantic input validation and tool
+    dispatch. This adapter only translates unexpected raised exceptions into
+    the project's standard ToolResult envelope.
     """
 
     def __init__(
@@ -52,14 +51,17 @@ class RegistryToolExecutor:
                 ok=False,
                 status=ToolStatus.FAILED,
                 message=(
-                    "Tool arguments failed validation."
+                    "Tool arguments failed "
+                    "validation."
                 ),
                 error=ToolError(
                     code=(
-                        "TOOL_ARGUMENT_VALIDATION_FAILED"
+                        "TOOL_ARGUMENT_"
+                        "VALIDATION_FAILED"
                     ),
                     message=(
-                        "Tool arguments failed validation."
+                        "Tool arguments failed "
+                        "validation."
                     ),
                     details={
                         "errors": exc.errors(
@@ -85,7 +87,8 @@ class RegistryToolExecutor:
                 ok=False,
                 status=ToolStatus.FAILED,
                 message=(
-                    "The tool call failed unexpectedly."
+                    "The tool call failed "
+                    "unexpectedly."
                 ),
                 error=ToolError(
                     code=type(exc).__name__,

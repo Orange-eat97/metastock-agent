@@ -17,14 +17,20 @@ class ToolRegistryProtocol(Protocol):
     ) -> ToolResult:
         ...
 
+    def list_tools(self) -> list[Any]:
+        ...
+
+    def get_tool(self, name: str) -> Any:
+        ...
+
 
 class RecordingToolRegistry:
     """
     Per-turn decorator around the real ToolRegistry.
 
-    Every execute() call is persisted before dispatch and finalized
-    after dispatch. This supports both one-tool turns and controller
-    flows that intentionally call several separate tools.
+    execute() remains recorded exactly as before. Read-only catalog access is
+    delegated without creating tool-call audit rows because planner discovery
+    is not itself a business-tool execution.
     """
 
     def __init__(
@@ -37,9 +43,41 @@ class RecordingToolRegistry:
     ) -> None:
         self._delegate = delegate
         self._repository = repository
-        self._conversation_id = conversation_id
+        self._conversation_id = (
+            conversation_id
+        )
         self._stream_id = stream_id
         self._next_ordinal = 0
+
+    def list_tools(self) -> list[Any]:
+        method = getattr(
+            self._delegate,
+            "list_tools",
+            None,
+        )
+
+        if not callable(method):
+            raise RuntimeError(
+                "The wrapped registry does not "
+                "expose list_tools()."
+            )
+
+        return list(method())
+
+    def get_tool(self, name: str) -> Any:
+        method = getattr(
+            self._delegate,
+            "get_tool",
+            None,
+        )
+
+        if not callable(method):
+            raise RuntimeError(
+                "The wrapped registry does not "
+                "expose get_tool()."
+            )
+
+        return method(name)
 
     def execute(
         self,
@@ -50,7 +88,9 @@ class RecordingToolRegistry:
         self._next_ordinal += 1
 
         call = self._repository.start(
-            conversation_id=self._conversation_id,
+            conversation_id=(
+                self._conversation_id
+            ),
             stream_id=self._stream_id,
             ordinal=ordinal,
             tool_name=name,
@@ -64,7 +104,9 @@ class RecordingToolRegistry:
             )
         except Exception as exc:
             self._repository.fail_exception(
-                tool_call_id=call.tool_call_id,
+                tool_call_id=(
+                    call.tool_call_id
+                ),
                 exception=exc,
             )
             raise

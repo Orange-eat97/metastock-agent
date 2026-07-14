@@ -4,25 +4,37 @@ from typing import Any, TypedDict
 
 
 class GraphInputState(TypedDict):
-    """JSON-serializable input accepted by the MS10 graph."""
-
     turn_input: dict[str, Any]
 
 
-class MetaStockGraphState(GraphInputState, total=False):
-    """
-    Internal graph state for the MS10.1-10.2 parity stage.
+class GraphRuntimeContext(TypedDict):
+    """Run-scoped data deliberately excluded from checkpointed state."""
 
-    This stage deliberately stores the existing ChatTurnInput and
-    ChatTurnOutput envelopes instead of introducing a second context model.
-    Later MS10 stages can add planner and workflow fields without changing
-    the current chat or tool contracts.
-    """
+    recent_messages: list[dict[str, Any]]
 
+
+class MetaStockGraphState(
+    GraphInputState,
+    total=False,
+):
+    planner_request: dict[str, Any]
+    decision: dict[str, Any]
+    resolution: dict[str, Any]
+
+    tool_result: dict[str, Any]
+    updated_context: dict[str, Any]
+
+    workflow_plan: dict[str, Any]
+    workflow_index: int
+    workflow_results: list[dict[str, Any]]
+    workflow_context: dict[str, Any]
+    workflow_complete: bool
+    workflow_succeeded: bool
+    workflow_failed_tool: str | None
+
+    composed_response: str
     turn_output: dict[str, Any]
 
 
 class GraphOutputState(TypedDict):
-    """JSON-serializable output returned by the compiled graph."""
-
     turn_output: dict[str, Any]
