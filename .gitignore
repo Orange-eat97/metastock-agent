@@ -20,3 +20,26 @@ __pycache__/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Embedded beta credentials
+release/release.env
+
+# Release build outputs
+release/staging/
+build/
+dist/
+
+# Virtual environments
+.venv/
+.release-venv/
+
+# Release build staging/output
+release/staging/
+release/release.env
+build/
+dist/
+
+# Python cache
+__pycache__/
+*.pyc
+.pytest_cache/
