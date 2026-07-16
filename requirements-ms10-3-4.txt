@@ -1,0 +1,7 @@
+# No new package beyond the existing OpenAI and LangGraph dependencies.
+#
+# The installed OpenAI SDK must support:
+# client.responses.parse(..., text_format=PydanticModel)
+#
+# Update only when needed:
+# pip install -U openai

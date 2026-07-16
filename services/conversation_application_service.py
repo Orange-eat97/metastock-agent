@@ -13,6 +13,9 @@ from chat.models import (
     ChatTurnInput,
     ChatTurnOutput,
 )
+from infrastructure.agent_state.checkpoints import (
+    CheckpointStoreProtocol,
+)
 from infrastructure.agent_state.conversation_repository import (
     ConversationRepository,
 )
@@ -38,6 +41,9 @@ from services.conversation_context_resolver import (
 from services.conversation_models import (
     ConversationTurn,
     ExecuteConversationTurnResult,
+)
+from services.planner_history import (
+    build_recent_planner_messages,
 )
 from services.recording_tool_registry import (
     RecordingToolRegistry,
@@ -90,6 +96,9 @@ class ConversationApplicationService:
         tool_calls: ToolCallRepository,
         registry: ToolRegistryProtocol,
         controller_factory: ControllerFactory,
+        checkpoints: (
+            CheckpointStoreProtocol | None
+        ) = None,
         context_resolver: (
             ConversationContextResolver | None
         ) = None,
@@ -100,6 +109,7 @@ class ConversationApplicationService:
         self._tool_calls = tool_calls
         self._registry = registry
         self._controller_factory = controller_factory
+        self._checkpoints = checkpoints
         self._context_resolver = (
             context_resolver
             or ConversationContextResolver()
@@ -148,6 +158,12 @@ class ConversationApplicationService:
         self,
         conversation_id: UUID,
     ) -> ConversationRecord:
+        self._conversations.require(
+            conversation_id
+        )
+        self._delete_checkpoint_thread(
+            conversation_id
+        )
         return self._conversations.clear_content(
             conversation_id
         )
@@ -156,6 +172,14 @@ class ConversationApplicationService:
         self,
         conversation_id: UUID,
     ) -> bool:
+        if not self._conversations.exists(
+            conversation_id
+        ):
+            return False
+
+        self._delete_checkpoint_thread(
+            conversation_id
+        )
         return self._conversations.delete(
             conversation_id
         )
@@ -295,6 +319,12 @@ class ConversationApplicationService:
                 ChatTurnInput(
                     user_message=normalised_user_content,
                     context=current_context,
+                    recent_messages=(
+                        build_recent_planner_messages(
+                            previous_messages
+                        )
+                    ),
+                    thread_id=conversation_id,
                 )
             )
 
@@ -451,6 +481,17 @@ class ConversationApplicationService:
             context=turn.context,
             tool_result=tool_result,
             replayed=True,
+        )
+
+    def _delete_checkpoint_thread(
+        self,
+        conversation_id: UUID,
+    ) -> None:
+        if self._checkpoints is None:
+            return
+
+        self._checkpoints.delete_thread(
+            str(conversation_id)
         )
 
     @staticmethod

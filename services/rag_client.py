@@ -78,8 +78,14 @@ class LocalRagClient:
         from src.rag_read_service import (
             RagExplorerReadService,
         )
+        from src.rag_explorer_update_service import (
+            RagExplorerUpdateService,
+        )
         from src.rag_result_store_service import (
             RagExplorerResultStoreService,
+        )
+        from src.rag_revision_service import (
+            RagExplorerRevisionService,
         )
         from src.rag_service import (
             RagExplorerRepairService,
@@ -92,8 +98,14 @@ class LocalRagClient:
         self._repair_service = (
             RagExplorerRepairService()
         )
+        self._revision_service = (
+            RagExplorerRevisionService()
+        )
         self._read_service = (
             RagExplorerReadService()
+        )
+        self._update_service = (
+            RagExplorerUpdateService()
         )
         self._result_store_service = (
             RagExplorerResultStoreService()
@@ -203,6 +215,60 @@ class LocalRagClient:
             ],
         )
 
+    def revise_explorer(
+        self,
+        explorer_id: str,
+        revision_instruction: str,
+    ) -> RagGenerateResult:
+        response = (
+            self._revision_service
+            .revise_explorer(
+                explorer=explorer_id,
+                revision_instruction=(
+                    revision_instruction
+                ),
+            )
+        )
+
+        return RagGenerateResult(
+            explorer=response.explorer,
+            explorer_created_at=(
+                response.explorer_created_at
+            ),
+            service_log=response.service_log,
+            service_log_created_at=(
+                response.service_log_created_at
+            ),
+            validation_passed=(
+                response.validation.passed
+            ),
+            validation_errors=[
+                str(error)
+                for error in response.validation.errors
+            ],
+            source=response.source,
+            assumptions=[
+                str(assumption)
+                for assumption in response.assumptions
+            ],
+            retrieved_refs=[
+                (
+                    ref.model_dump(mode="json")
+                    if hasattr(ref, "model_dump")
+                    else dict(ref)
+                )
+                for ref in response.retrieved_refs
+            ],
+            validation_warnings=[
+                str(warning)
+                for warning in getattr(
+                    response.validation,
+                    "warnings",
+                    [],
+                )
+            ],
+        )
+
     def get_explorer(
         self,
         explorer_id: str,
@@ -210,6 +276,33 @@ class LocalRagClient:
         return (
             self._read_service
             .get_explorer(explorer_id)
+        )
+
+    def get_explorers_by_ids(
+        self,
+        explorer_ids: list[str],
+    ) -> list[dict[str, Any]]:
+        """Load current Explorer rows in one controlled read."""
+        return (
+            self._read_service
+            .get_explorers_by_ids(explorer_ids)
+        )
+
+    def update_explorer_full_json(
+        self,
+        *,
+        explorer_id: str,
+        expected_version: int,
+        patch: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Persist allowlisted manual edits without invoking AI."""
+        return (
+            self._update_service
+            .update_explorer_full_json(
+                explorer_id=explorer_id,
+                expected_version=expected_version,
+                patch=patch,
+            )
         )
 
     def resolve_explorer_id_by_name(
