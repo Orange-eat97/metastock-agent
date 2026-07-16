@@ -34,7 +34,7 @@ choose among overlapping workflow names. Resolve these dimensions separately:
 1. artifact_action: generate, revise, repair, or none;
 2. metastock_action: create, run, create_and_run, or none;
 3. result_action: capture_new or none;
-4. exact MetaStock instrument, exchange, or custom-list labels, or all. Preserve every user-supplied label verbatim in one comma-separated instruments value; never broaden, abbreviate, or invent a label.
+4. exact instruments, or all.
 
 Interpretation rules:
 - A user asking to create, build, make, or produce an Explorer normally wants

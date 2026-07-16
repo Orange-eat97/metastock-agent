@@ -226,10 +226,8 @@ def _command_schema(
             "instruments": {
                 "type": "string",
                 "description": (
-                    "Use 'all' unless the user supplied exact MetaStock "
-                    "instrument, exchange, or custom-list labels. Preserve "
-                    "multiple labels as one comma-separated string in the "
-                    "user's order. Do not broaden, abbreviate, or invent labels."
+                    "Use 'all' unless the user supplied exact comma-separated "
+                    "instrument names. Do not invent instrument names."
                 ),
                 "default": "all",
             },
