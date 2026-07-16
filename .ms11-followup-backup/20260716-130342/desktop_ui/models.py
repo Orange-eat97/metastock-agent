@@ -51,13 +51,6 @@ class ExplorerEditPatch:
     assumptions: list[str] = field(default_factory=list)
 
 
-@dataclass(frozen=True)
-class ExplorerSaveFailure:
-    explorer_id: str
-    errors: list[str]
-
-
-
 @dataclass
 class ExplorerViewModel:
     explorer_id: str

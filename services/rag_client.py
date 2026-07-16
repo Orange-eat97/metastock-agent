@@ -78,6 +78,9 @@ class LocalRagClient:
         from src.rag_read_service import (
             RagExplorerReadService,
         )
+        from src.rag_explorer_update_service import (
+            RagExplorerUpdateService,
+        )
         from src.rag_result_store_service import (
             RagExplorerResultStoreService,
         )
@@ -100,6 +103,9 @@ class LocalRagClient:
         )
         self._read_service = (
             RagExplorerReadService()
+        )
+        self._update_service = (
+            RagExplorerUpdateService()
         )
         self._result_store_service = (
             RagExplorerResultStoreService()
@@ -270,6 +276,33 @@ class LocalRagClient:
         return (
             self._read_service
             .get_explorer(explorer_id)
+        )
+
+    def get_explorers_by_ids(
+        self,
+        explorer_ids: list[str],
+    ) -> list[dict[str, Any]]:
+        """Load current Explorer rows in one controlled read."""
+        return (
+            self._read_service
+            .get_explorers_by_ids(explorer_ids)
+        )
+
+    def update_explorer_full_json(
+        self,
+        *,
+        explorer_id: str,
+        expected_version: int,
+        patch: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Persist allowlisted manual edits without invoking AI."""
+        return (
+            self._update_service
+            .update_explorer_full_json(
+                explorer_id=explorer_id,
+                expected_version=expected_version,
+                patch=patch,
+            )
         )
 
     def resolve_explorer_id_by_name(

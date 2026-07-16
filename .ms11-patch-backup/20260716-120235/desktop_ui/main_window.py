@@ -18,7 +18,6 @@ from .models import (
     ChatMessageViewModel,
     ConversationSnapshot,
     ExplorerEditPatch,
-    ExplorerSaveFailure,
     ExplorerViewModel,
     TurnProgress,
     TurnResponse,
@@ -193,7 +192,10 @@ class MainWindow(QMainWindow):
         self._start_background_worker(
             worker,
             self._on_explorer_saved,
-            self._on_explorer_save_failed,
+            lambda message: self._on_operation_failed(
+                "Could not save Explorer",
+                message,
+            ),
         )
 
     def _on_explorer_saved(
@@ -207,23 +209,6 @@ class MainWindow(QMainWindow):
         self.chat.status_bar.set_progress(
             TurnProgress("completed", "Explorer changes saved")
         )
-
-    def _on_explorer_save_failed(
-        self,
-        failure: ExplorerSaveFailure,
-    ) -> None:
-        shown_inline = self.chat.show_explorer_save_errors(
-            failure.explorer_id,
-            list(failure.errors),
-        )
-        self.chat.status_bar.set_progress(
-            TurnProgress("failed", "Explorer changes were not saved")
-        )
-        if not shown_inline:
-            self._show_error(
-                "Could not save Explorer",
-                "\n".join(failure.errors),
-            )
 
     def _export_conversation(self, conversation_id: str) -> None:
         if self._turn_thread is not None:

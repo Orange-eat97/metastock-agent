@@ -6,16 +6,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QIcon, QKeyEvent, QPalette
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import QFont, QKeyEvent
 from PySide6.QtWidgets import (
     QApplication,
     QAbstractItemView,
     QFileDialog,
     QFrame,
     QHBoxLayout,
-    QDialog,
-    QDialogButtonBox,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMenu,
@@ -29,8 +28,6 @@ from PySide6.QtWidgets import (
     QToolButton,
     QVBoxLayout,
     QWidget,
-    QDialog,
-    QInputDialog,
 )
 
 from .models import (
@@ -62,7 +59,6 @@ from .theme import (
     SUCCESS,
     SUCCESS_DARK,
     WARNING,
-    apply_light_menu,
 )
 
 _UUID_PATTERN = re.compile(
@@ -316,7 +312,6 @@ class ConversationEntry(QFrame):
             "}"
         )
         menu = QMenu(menu_button)
-        apply_light_menu(menu)
         rename_action = menu.addAction("Rename")
         export_action = menu.addAction("Export session (.md)")
         clear_action = menu.addAction("Clear messages")
@@ -356,77 +351,17 @@ class ConversationEntry(QFrame):
             root.addWidget(detail)
 
     def _rename(self) -> None:
-        dialog = QInputDialog(self)
-        dialog.setWindowTitle("Rename conversation")
-        dialog.setLabelText("Conversation title")
-        dialog.setTextValue(self._summary.title)
-        dialog.setInputMode(
-            QInputDialog.InputMode.TextInput
+        title, accepted = QInputDialog.getText(
+            self,
+            "Rename conversation",
+            "Conversation title",
+            text=self._summary.title,
         )
-
-        dialog.setStyleSheet(
-            """
-            QInputDialog {
-                background-color: #f3f3f5;
-                color: #202024;
-            }
-
-            QInputDialog QLabel {
-                background-color: transparent;
-                color: #202024;
-            }
-
-            QInputDialog QLineEdit {
-                background-color: #ffffff;
-                color: #202024;
-                border: 1px solid #e4e4e8;
-                border-radius: 7px;
-                padding: 8px 10px;
-                selection-background-color: #e9ebef;
-                selection-color: #202024;
-            }
-
-            QInputDialog QPushButton {
-                background-color: #ffffff;
-                color: #202024;
-                border: 1px solid #e4e4e8;
-                border-radius: 7px;
-                min-width: 72px;
-                padding: 7px 12px;
-            }
-
-            QInputDialog QPushButton:hover {
-                background-color: #ececf0;
-            }
-
-            QInputDialog QPushButton:default {
-                background-color: #030213;
-                color: #ffffff;
-                border-color: #030213;
-            }
-
-            QInputDialog QPushButton:disabled {
-                background-color: #ececf0;
-                color: #717182;
-            }
-            """
-        )
-
-        if (
-            dialog.exec()
-            != QDialog.DialogCode.Accepted
-        ):
-            return
-
-        title = dialog.textValue().strip()
-
-        if not title:
-            return
-
-        self.rename_requested.emit(
-            self._summary.conversation_id,
-            title,
-        )
+        if accepted and title.strip():
+            self.rename_requested.emit(
+                self._summary.conversation_id,
+                title.strip(),
+            )
 
 
 class ConversationSidebar(QFrame):
@@ -657,110 +592,8 @@ class CollapsibleDetails(QFrame):
         self.body_layout.addWidget(label)
 
 
-class ExplorerColumnEditorRow(QFrame):
-    delete_requested = Signal(object)
-
-    def __init__(
-        self,
-        letter: str,
-        formula: str,
-        parent: QWidget | None = None,
-    ) -> None:
-        super().__init__(parent)
-        self.setStyleSheet("background:transparent; border:none;")
-        root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(3)
-
-        row = QHBoxLayout()
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(6)
-
-        self._letter = QLabel(letter)
-        self._letter.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._letter.setFixedSize(34, 34)
-        self._letter.setFont(font(9, QFont.Weight.DemiBold))
-        self._letter.setStyleSheet(
-            f"background:{CARD}; color:{FG}; border:1px solid {BORDER};"
-            "border-radius:6px;"
-        )
-
-        self._formula = QPlainTextEdit(formula)
-        self._formula.setFont(font(9, mono=True))
-        self._formula.setFixedHeight(56)
-        self._formula.setPlaceholderText("MetaStock formula")
-        self._formula.setStyleSheet(
-            f"background:{CARD}; color:{FG}; border:1px solid {BORDER};"
-            "border-radius:6px; padding:5px 7px;"
-        )
-
-        self._delete = QPushButton("Remove")
-        self._delete.setFont(font(8, QFont.Weight.Medium))
-        self._delete.setFixedHeight(28)
-        self._delete.setStyleSheet(
-            "QPushButton {"
-            f"background:{CARD}; color:{ERROR}; border:1px solid {BORDER};"
-            "border-radius:6px; padding:0 8px;"
-            "}"
-            "QPushButton:hover {"
-            f"background:{MUTED};"
-            "}"
-            "QPushButton:disabled {"
-            f"color:{FG_MUTED}; background:{MUTED_SOFT};"
-            "}"
-        )
-        _set_pointer(self._delete)
-        self._delete.clicked.connect(
-            lambda checked=False: self.delete_requested.emit(self)
-        )
-
-        row.addWidget(self._letter, 0, Qt.AlignmentFlag.AlignTop)
-        row.addWidget(self._formula, 1)
-        row.addWidget(self._delete, 0, Qt.AlignmentFlag.AlignTop)
-        root.addLayout(row)
-
-        self._error = QLabel("")
-        self._error.setWordWrap(True)
-        self._error.setFont(font(8))
-        self._error.setStyleSheet(f"color:{ERROR}; padding-left:40px;")
-        self._error.hide()
-        root.addWidget(self._error)
-
-    @property
-    def letter(self) -> str:
-        return self._letter.text()
-
-    @property
-    def formula(self) -> str:
-        return self._formula.toPlainText().strip()
-
-    def set_letter(self, value: str) -> None:
-        self._letter.setText(value)
-
-    def set_delete_enabled(self, enabled: bool) -> None:
-        self._delete.setEnabled(enabled)
-
-    def clear_error(self) -> None:
-        self._error.clear()
-        self._error.hide()
-        self._formula.setStyleSheet(
-            f"background:{CARD}; color:{FG}; border:1px solid {BORDER};"
-            "border-radius:6px; padding:5px 7px;"
-        )
-
-    def show_error(self, message: str) -> None:
-        self._error.setText(message)
-        self._error.show()
-        self._formula.setStyleSheet(
-            f"background:{CARD}; color:{FG}; border:1px solid {ERROR};"
-            "border-radius:6px; padding:5px 7px;"
-        )
-
-
 class ExplorerInlineCard(QFrame):
     save_requested = Signal(str, int, object)
-
-    MAX_COLUMNS = 12
 
     def __init__(
         self,
@@ -878,25 +711,17 @@ class ExplorerInlineCard(QFrame):
         editor_layout.addWidget(self._field_label("Description"))
         editor_layout.addWidget(self._description_editor)
 
-        columns_header = QHBoxLayout()
-        columns_header.addWidget(self._field_label("Columns"))
-        columns_header.addStretch()
-        self._add_column_button = _plain_button("+ Add column")
-        self._add_column_button.clicked.connect(self._add_empty_column)
-        columns_header.addWidget(self._add_column_button)
-        editor_layout.addLayout(columns_header)
-
-        self._columns_host = QWidget()
-        self._columns_host.setStyleSheet("background:transparent;")
-        self._columns_layout = QVBoxLayout(self._columns_host)
-        self._columns_layout.setContentsMargins(0, 0, 0, 0)
-        self._columns_layout.setSpacing(6)
-        self._column_rows: list[ExplorerColumnEditorRow] = []
+        editor_layout.addWidget(self._field_label("Columns"))
+        self._column_editors: list[tuple[QLineEdit, QPlainTextEdit]] = []
         for column in explorer.columns:
-            self._append_column_row(column.formula)
-        if not self._column_rows:
-            self._append_column_row("")
-        editor_layout.addWidget(self._columns_host)
+            row = QHBoxLayout()
+            label_editor = self._line_editor(column.label)
+            label_editor.setFixedWidth(42)
+            formula_editor = self._text_editor(column.formula, 52)
+            row.addWidget(label_editor)
+            row.addWidget(formula_editor, 1)
+            editor_layout.addLayout(row)
+            self._column_editors.append((label_editor, formula_editor))
 
         self._filter_editor = self._text_editor(explorer.filter_formula, 70)
         editor_layout.addWidget(self._field_label("Filter formula"))
@@ -934,11 +759,6 @@ class ExplorerInlineCard(QFrame):
 
         self._editor_panel.hide()
         self._root.addWidget(self._editor_panel)
-        self._refresh_column_controls()
-
-    @property
-    def explorer_id(self) -> str:
-        return self._explorer.explorer_id
 
     @staticmethod
     def _field_label(text: str) -> QLabel:
@@ -968,51 +788,6 @@ class ExplorerInlineCard(QFrame):
         )
         return editor
 
-    def _append_column_row(self, formula: str) -> None:
-        if len(self._column_rows) >= self.MAX_COLUMNS:
-            return
-        letter = chr(ord("A") + len(self._column_rows))
-        row = ExplorerColumnEditorRow(letter, formula)
-        row.delete_requested.connect(self._remove_column_row)
-        self._column_rows.append(row)
-        self._columns_layout.addWidget(row)
-        self._refresh_column_controls()
-
-    def _add_empty_column(self) -> None:
-        if len(self._column_rows) >= self.MAX_COLUMNS:
-            self._show_editor_error(
-                "MetaStock Explorer supports at most 12 columns (A through L)."
-            )
-            return
-        self._editor_error.hide()
-        self._append_column_row("")
-
-    def _remove_column_row(self, row: ExplorerColumnEditorRow) -> None:
-        if len(self._column_rows) <= 1:
-            self._show_editor_error("At least one Explorer column is required.")
-            return
-        if row not in self._column_rows:
-            return
-        self._column_rows.remove(row)
-        self._columns_layout.removeWidget(row)
-        row.deleteLater()
-        self._reindex_columns()
-        self._editor_error.hide()
-
-    def _reindex_columns(self) -> None:
-        for index, row in enumerate(self._column_rows):
-            row.set_letter(chr(ord("A") + index))
-        self._refresh_column_controls()
-
-    def _refresh_column_controls(self) -> None:
-        can_delete = len(self._column_rows) > 1
-        for row in self._column_rows:
-            row.set_delete_enabled(can_delete)
-        if hasattr(self, "_add_column_button"):
-            self._add_column_button.setEnabled(
-                len(self._column_rows) < self.MAX_COLUMNS
-            )
-
     def _show_editor(self) -> None:
         self._view.hide()
         self._edit_button.setEnabled(False)
@@ -1020,7 +795,7 @@ class ExplorerInlineCard(QFrame):
         self._name_editor.setFocus()
 
     def _hide_editor(self) -> None:
-        self._clear_validation_errors()
+        self._editor_error.hide()
         self._editor_panel.hide()
         self._edit_button.setEnabled(True)
         self._view.show()
@@ -1028,28 +803,20 @@ class ExplorerInlineCard(QFrame):
     def set_saving(self, saving: bool) -> None:
         self._save_button.setEnabled(not saving)
         self._save_button.setText("Saving…" if saving else "Save")
-        self._add_column_button.setEnabled(
-            not saving and len(self._column_rows) < self.MAX_COLUMNS
-        )
-        for row in self._column_rows:
-            row.setEnabled(not saving)
 
     def _submit_edits(self) -> None:
-        self._clear_validation_errors()
         name = self._name_editor.text().strip()
         filter_formula = self._filter_editor.toPlainText().strip()
         columns: list[ExplorerColumn] = []
-        for row in self._column_rows:
-            formula = row.formula
-            if not formula:
-                row.show_error(f"Column {row.letter} formula cannot be blank.")
+        for label_editor, formula_editor in self._column_editors:
+            label = label_editor.text().strip().upper()
+            formula = formula_editor.toPlainText().strip()
+            if not label or not formula:
                 self._show_editor_error(
-                    "Correct the highlighted column before saving."
+                    "Every displayed column needs a letter and formula."
                 )
                 return
-            columns.append(
-                ExplorerColumn(label=row.letter, formula=formula)
-            )
+            columns.append(ExplorerColumn(label=label, formula=formula))
 
         if not name:
             self._show_editor_error("Explorer name cannot be blank.")
@@ -1063,7 +830,7 @@ class ExplorerInlineCard(QFrame):
             for line in self._assumptions_editor.toPlainText().splitlines()
             if line.strip()
         ]
-        self.set_saving(True)
+        self._editor_error.hide()
         self.save_requested.emit(
             self._explorer.explorer_id,
             self._explorer.manual_edit_version,
@@ -1076,58 +843,9 @@ class ExplorerInlineCard(QFrame):
             ),
         )
 
-    def show_save_errors(self, errors: list[str]) -> None:
-        self.set_saving(False)
-        self._view.hide()
-        self._edit_button.setEnabled(False)
-        self._editor_panel.show()
-        self._clear_validation_errors()
-
-        global_errors: list[str] = []
-        for raw_error in errors:
-            message = str(raw_error).strip()
-            if not message:
-                continue
-            row = self._row_for_validation_error(message)
-            if row is None:
-                global_errors.append(message)
-            else:
-                row.show_error(message)
-
-        if global_errors:
-            self._show_editor_error("\n".join(f"• {item}" for item in global_errors))
-        elif errors:
-            self._show_editor_error(
-                "Correct the highlighted column formula and save again."
-            )
-
-    def _row_for_validation_error(
-        self,
-        message: str,
-    ) -> ExplorerColumnEditorRow | None:
-        index_match = re.search(r"col_definitions\[(\d+)\]", message)
-        if index_match:
-            index = int(index_match.group(1))
-            if 0 <= index < len(self._column_rows):
-                return self._column_rows[index]
-
-        letter_match = re.search(r"\bcol(?:umn)?\s+([A-L])\b", message, re.IGNORECASE)
-        if letter_match:
-            index = ord(letter_match.group(1).upper()) - ord("A")
-            if 0 <= index < len(self._column_rows):
-                return self._column_rows[index]
-        return None
-
-    def _clear_validation_errors(self) -> None:
-        self._editor_error.clear()
-        self._editor_error.hide()
-        for row in self._column_rows:
-            row.clear_error()
-
     def _show_editor_error(self, message: str) -> None:
         self._editor_error.setText(message)
         self._editor_error.show()
-
 
 class ResultInlineCard(QFrame):
     def __init__(
@@ -1448,7 +1166,6 @@ class MessageBubble(QWidget):
     ) -> None:
         super().__init__(parent)
         self.setStyleSheet("background:transparent;")
-        self._explorer_card: ExplorerInlineCard | None = None
         root = QHBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(9)
@@ -1489,11 +1206,11 @@ class MessageBubble(QWidget):
 
         if message.role == "assistant":
             if message.explorer is not None:
-                self._explorer_card = ExplorerInlineCard(message.explorer)
-                self._explorer_card.save_requested.connect(
+                explorer_card = ExplorerInlineCard(message.explorer)
+                explorer_card.save_requested.connect(
                     self.explorer_save_requested
                 )
-                column_layout.addWidget(self._explorer_card)
+                column_layout.addWidget(explorer_card)
             for result in message.results:
                 column_layout.addWidget(ResultInlineCard(result))
             if message.rag_log is not None:
@@ -1526,20 +1243,6 @@ class MessageBubble(QWidget):
             root.addStretch()
 
 
-    def show_explorer_save_errors(
-        self,
-        explorer_id: str,
-        errors: list[str],
-    ) -> bool:
-        if (
-            self._explorer_card is None
-            or self._explorer_card.explorer_id != explorer_id
-        ):
-            return False
-        self._explorer_card.show_save_errors(errors)
-        return True
-
-
 class ChatArea(QFrame):
     send_requested = Signal(str)
     clarification_chosen = Signal(str)
@@ -1554,9 +1257,6 @@ class ChatArea(QFrame):
             "}"
         )
         self._running = False
-        self._autoscroll_pending = False
-        self._autoscroll_ticket = 0
-        self._message_bubbles: list[MessageBubble] = []
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -1600,9 +1300,6 @@ class ChatArea(QFrame):
         self._message_layout.setSpacing(14)
         self._message_layout.addStretch()
         self._scroll.setWidget(self._message_host)
-        self._scroll.verticalScrollBar().rangeChanged.connect(
-            self._on_scroll_range_changed
-        )
         root.addWidget(self._scroll, 1)
 
         self.status_bar = TurnStatusBar()
@@ -1631,50 +1328,15 @@ class ChatArea(QFrame):
         input_layout.setSpacing(7)
         self._editor = MessageEditor()
         self._editor.submit_requested.connect(self._send)
-        self._send_button = QPushButton()
-        self._send_button.setFixedSize(32, 32)
-        self._send_button.setToolTip("Send message")
-        self._send_button.setAccessibleName("Send message")
-
-        send_icon_path = (
-            Path(__file__).resolve().parent
-            / "assets"
-            / "send_arrow.webp"
-        )
-
-        if send_icon_path.exists():
-            self._send_button.setIcon(
-                QIcon(str(send_icon_path))
-            )
-            self._send_button.setIconSize(
-                QSize(22, 22)
-            )
-        else:
-            # Visible fallback when the asset was not copied.
-            self._send_button.setText("▶")
-            self._send_button.setFont(
-                font(9, QFont.Weight.DemiBold)
-            )
-
+        self._send_button = QPushButton("➤")
+        self._send_button.setFixedSize(28, 28)
+        self._send_button.setFont(font(9, QFont.Weight.DemiBold))
         self._send_button.setStyleSheet(
             "QPushButton {"
-            f"background-color:{CARD};"
-            f"color:{FG};"
-            f"border:1px solid {BORDER};"
-            "border-radius:8px;"
-            "padding:3px;"
-            "}"
-            "QPushButton:hover {"
-            f"background-color:{MUTED_SOFT};"
-            f"border-color:{FG_MUTED};"
-            "}"
-            "QPushButton:pressed {"
-            f"background-color:{ACCENT};"
+            f"background:{PRIMARY}; color:{PRIMARY_FG}; border:none; border-radius:7px;"
             "}"
             "QPushButton:disabled {"
-            f"background-color:{MUTED};"
-            f"color:{FG_MUTED};"
-            f"border-color:{BORDER};"
+            f"background:{FG_MUTED}; color:{MUTED};"
             "}"
         )
         _set_pointer(self._send_button)
@@ -1701,7 +1363,6 @@ class ChatArea(QFrame):
         self._mode.setText("working" if running else "assistant")
 
     def clear_messages(self) -> None:
-        self._message_bubbles.clear()
         while self._message_layout.count() > 1:
             item = self._message_layout.takeAt(0)
             widget = item.widget()
@@ -1723,59 +1384,18 @@ class ChatArea(QFrame):
             self._message_layout.count() - 1,
             bubble,
         )
-        self._message_bubbles.append(bubble)
         if scroll:
-            self.request_scroll_to_bottom()
+            QTimer.singleShot(
+                0,
+                lambda target=bubble: self._ensure_message_visible(target),
+            )
 
     def scroll_to_bottom_deferred(self) -> None:
-        self.request_scroll_to_bottom()
+        QTimer.singleShot(0, self._scroll_to_bottom)
 
-    def request_scroll_to_bottom(self) -> None:
-        """Follow asynchronous card/layout growth until the latest turn settles."""
-
-        self._autoscroll_pending = True
-        self._autoscroll_ticket += 1
-        ticket = self._autoscroll_ticket
-        for delay in (0, 25, 75, 150, 300, 600, 1000, 1500):
-            QTimer.singleShot(
-                delay,
-                lambda current=ticket: self._scroll_if_current(current),
-            )
-        QTimer.singleShot(
-            1800,
-            lambda current=ticket: self._finish_autoscroll(current),
-        )
-
-    def show_explorer_save_errors(
-        self,
-        explorer_id: str,
-        errors: list[str],
-    ) -> bool:
-        for bubble in reversed(self._message_bubbles):
-            if bubble.show_explorer_save_errors(explorer_id, errors):
-                self.request_scroll_to_bottom()
-                return True
-        return False
-
-    def _on_scroll_range_changed(
-        self,
-        minimum: int,
-        maximum: int,
-    ) -> None:
-        del minimum
-        if self._autoscroll_pending:
-            self._scroll.verticalScrollBar().setValue(maximum)
-
-    def _scroll_if_current(self, ticket: int) -> None:
-        if ticket != self._autoscroll_ticket:
-            return
+    def _ensure_message_visible(self, bubble: QWidget) -> None:
+        self._scroll.ensureWidgetVisible(bubble, 0, 16)
         self._scroll_to_bottom()
-
-    def _finish_autoscroll(self, ticket: int) -> None:
-        if ticket != self._autoscroll_ticket:
-            return
-        self._scroll_to_bottom()
-        self._autoscroll_pending = False
 
     def _send(self) -> None:
         if self._running:

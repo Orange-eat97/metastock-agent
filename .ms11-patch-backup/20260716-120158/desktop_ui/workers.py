@@ -3,8 +3,7 @@ from __future__ import annotations
 from PySide6.QtCore import QObject, Signal, Slot
 
 from .backend_port import ConversationBackendPort
-from .models import ExplorerSaveFailure, TurnProgress
-from services.explorer_edit_service import ExplorerEditValidationError
+from .models import TurnProgress
 
 
 class TurnWorker(QObject):
@@ -44,7 +43,7 @@ class TurnWorker(QObject):
 
 class ExplorerSaveWorker(QObject):
     completed = Signal(object)
-    failed = Signal(object)
+    failed = Signal(str)
     finished = Signal()
 
     def __init__(
@@ -74,20 +73,8 @@ class ExplorerSaveWorker(QObject):
                 self._conversation_id
             )
             self.completed.emit((explorer, snapshot))
-        except ExplorerEditValidationError as exc:
-            self.failed.emit(
-                ExplorerSaveFailure(
-                    explorer_id=self._explorer_id,
-                    errors=list(exc.errors),
-                )
-            )
         except Exception as exc:
-            self.failed.emit(
-                ExplorerSaveFailure(
-                    explorer_id=self._explorer_id,
-                    errors=[str(exc)],
-                )
-            )
+            self.failed.emit(str(exc))
         finally:
             self.finished.emit()
 

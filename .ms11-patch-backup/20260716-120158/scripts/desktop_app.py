@@ -5,15 +5,6 @@ import os
 import sys
 from pathlib import Path
 
-from dotenv import load_dotenv
-
-AGENT_REPO_ROOT = Path(__file__).resolve().parents[1]
-
-load_dotenv(
-    AGENT_REPO_ROOT / ".env",
-    override=False,
-)
-
 os.environ.setdefault("LANGGRAPH_STRICT_MSGPACK", "true")
 
 from PySide6.QtWidgets import QApplication

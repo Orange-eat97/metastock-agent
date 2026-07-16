@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any, Protocol
 
 from langgraph.checkpoint.base import (
@@ -12,6 +13,9 @@ from chat.controller import (
 from chat.models import (
     ChatTurnInput,
     ChatTurnOutput,
+)
+from chat.routes import (
+    ChatRoute,
 )
 from chat.router import (
     DeterministicChatRouter,
@@ -50,6 +54,32 @@ class CompiledGraphProtocol(Protocol):
         ) = None,
     ) -> dict[str, Any]:
         ...
+
+
+_DIRECT_CURRENT_EXPLORER_REQUESTS = frozenset(
+    {
+        "show me the current explorer",
+        "show the current explorer",
+        "show current explorer",
+        "display the current explorer",
+        "display current explorer",
+        "open the current explorer",
+        "open current explorer",
+        "show me the active explorer",
+        "show the active explorer",
+        "show active explorer",
+        "display the active explorer",
+        "display active explorer",
+        "open the active explorer",
+        "open active explorer",
+    }
+)
+
+
+def _normalise_direct_request(value: str) -> str:
+    return " ".join(
+        re.sub(r"[^a-z0-9]+", " ", value.casefold()).split()
+    )
 
 
 class LangGraphOrchestrator:
@@ -93,6 +123,7 @@ class LangGraphOrchestrator:
                 "planner, not both."
             )
 
+        self._registry = registry
         self._structured_mode = (
             conversation_driver is not None
             or planner is not None
@@ -172,10 +203,53 @@ class LangGraphOrchestrator:
     def checkpointing_enabled(self) -> bool:
         return self._checkpointing_enabled
 
+
+    def _try_direct_current_explorer(
+        self,
+        payload: ChatTurnInput,
+    ) -> ChatTurnOutput | None:
+        request = _normalise_direct_request(
+            payload.user_message
+        )
+        if request not in _DIRECT_CURRENT_EXPLORER_REQUESTS:
+            return None
+
+        explorer_id = payload.context.active_explorer_id
+        if not explorer_id:
+            return ChatTurnOutput(
+                assistant_message=(
+                    "There is no current Explorer in this conversation yet."
+                ),
+                route=ChatRoute.GET_EXPLORER,
+                context=payload.context,
+                tool_result=None,
+            )
+
+        tool_result = self._registry.execute(
+            "get_explorer",
+            {"explorer_id": explorer_id},
+        )
+        return ChatTurnOutput(
+            assistant_message=(
+                "Here is the current Explorer."
+                if tool_result.ok
+                else tool_result.message
+            ),
+            route=ChatRoute.GET_EXPLORER,
+            context=payload.context,
+            tool_result=tool_result,
+        )
+
     def handle_turn(
         self,
         payload: ChatTurnInput,
     ) -> ChatTurnOutput:
+        direct_output = self._try_direct_current_explorer(
+            payload
+        )
+        if direct_output is not None:
+            return direct_output
+
         config: dict[str, Any] | None = None
 
         if self._checkpointing_enabled:
