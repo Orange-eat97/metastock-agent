@@ -236,9 +236,14 @@ class ComposeConversationResultNode:
             fallback_message=fallback_message,
         )
 
+        compact_explorer_message = (
+            _compact_explorer_message(results)
+        )
+
         return {
             "composed_response": (
-                self._composer.compose(
+                compact_explorer_message
+                or self._composer.compose(
                     request
                 ).strip()
                 or fallback_message
@@ -301,6 +306,55 @@ class FinalizeConversationTurnNode:
                 mode="json"
             )
         }
+
+
+def _compact_explorer_message(
+    results: list[ToolResult],
+) -> str | None:
+    # Explorer cards already expose columns, validation, assumptions,
+    # details, and failures. Keep conversation text to name + filter.
+    labels = {
+        "generate_explorer": "generated",
+        "revise_explorer": "revised",
+        "repair_explorer": "repaired",
+        "get_explorer": "current",
+    }
+
+    for result in results:
+        label = labels.get(result.tool_name)
+
+        if label is None or not result.ok:
+            continue
+
+        raw_explorer = result.data.get("explorer")
+
+        if not isinstance(raw_explorer, dict):
+            continue
+
+        name = str(
+            raw_explorer.get("name") or ""
+        ).strip()
+        filter_code = str(
+            raw_explorer.get("filter_code") or ""
+        ).strip()
+
+        if not name or not filter_code:
+            continue
+
+        if label == "current":
+            return (
+                "Current Explorer:\n\n"
+                f"- Name: {name}\n"
+                f"- Filter: {filter_code}"
+            )
+
+        return (
+            f"Explorer ({label}):\n\n"
+            f"- Name: {name}\n"
+            f"- Filter: {filter_code}"
+        )
+
+    return None
 
 
 def _read_turn_input(

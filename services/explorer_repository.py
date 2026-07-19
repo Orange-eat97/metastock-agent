@@ -6,6 +6,8 @@ from services.rag_client import LocalRagClient
 
 
 class ExplorerRepository:
+    EXTERNAL_METASTOCK_PREFIX = "metastock-name:"
+
     """
     Read-side repository for Explorer review.
 
@@ -22,7 +24,38 @@ class ExplorerRepository:
         self.rag_client = rag_client
 
     def get_explorer(self, explorer_id: str) -> dict[str, Any]:
-        cleaned = self._clean_required_text(explorer_id, "explorer_id")
+        cleaned = self._clean_required_text(
+            explorer_id,
+            "explorer_id",
+        )
+
+        if cleaned.startswith(
+            self.EXTERNAL_METASTOCK_PREFIX
+        ):
+            explorer_name = cleaned[
+                len(self.EXTERNAL_METASTOCK_PREFIX):
+            ].strip()
+
+            if not explorer_name:
+                raise ValueError(
+                    "External MetaStock Explorer name is empty."
+                )
+
+            # Selection-only adapter for Explorers that already exist
+            # in MetaStock but are not stored in the Explorer bank.
+            return {
+                "id": cleaned,
+                "created_at": None,
+                "explorer_name": explorer_name,
+                "explorer_description": "",
+                "explorer_code_body": "1",
+                "col_definitions": [],
+                "validation_passed": True,
+                "validation_errors": [],
+                "validation_warnings": [],
+                "service_log_id": None,
+            }
+
         return self.rag_client.get_explorer(cleaned)
 
     def get_explorers_by_ids(

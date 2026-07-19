@@ -8,7 +8,7 @@ from PyInstaller.utils.hooks import (
 )
 
 
-project_root = Path(SPECPATH).parent.parent
+project_root = Path(SPECPATH).parent
 release_root = project_root / "release"
 staging_root = release_root / "staging"
 
@@ -64,13 +64,14 @@ hiddenimports = [
     "src.rag_read_service",
     "src.rag_result_store_service",
     "automator_service",
+    "src.rag_explorer_update_service",
 ]
 
 hiddenimports += collect_submodules(
     "langgraph"
 )
 hiddenimports += collect_submodules(
-    "langgraph_checkpoint_postgres"
+    "langgraph.checkpoint.postgres"
 )
 hiddenimports += collect_submodules(
     "langchain_postgres"

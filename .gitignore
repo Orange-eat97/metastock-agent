@@ -25,7 +25,6 @@ Thumbs.db
 release/release.env
 
 # Release build outputs
-release/staging/
 build/
 dist/
 
@@ -33,11 +32,18 @@ dist/
 .venv/
 .release-venv/
 
-# Release build staging/output
-release/staging/
+# Release staging is committed.
+release/staging/**/__pycache__/
+release/staging/**/*.py[cod]
+release/staging/**/.pytest_cache/
+release/staging/**/*.log
+release/staging/**/*.bak
+release/staging/**/*.bak_*
+release/staging/**/.env
+release/staging/**/.env.*
+
+# Never commit release secrets.
 release/release.env
-build/
-dist/
 
 # Python cache
 __pycache__/

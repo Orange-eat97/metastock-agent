@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QInputDialog,
 )
+from sqlalchemy import text
 
 from .models import (
     ChatMessageViewModel,
@@ -1477,7 +1478,38 @@ class MessageBubble(QWidget):
 
         text = QLabel(message.text)
         text.setWordWrap(True)
-        text.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        text.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        text.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu
+        )
+
+        def show_text_menu(position) -> None:
+            menu = QMenu(text)
+            apply_light_menu(menu)
+
+            copy_action = menu.addAction("Copy")
+            copy_action.setEnabled(bool(text.selectedText()))
+            copy_action.triggered.connect(
+                lambda: QApplication.clipboard().setText(
+                    text.selectedText()
+                )
+            )
+
+            select_all_action = menu.addAction("Select All")
+            select_all_action.triggered.connect(
+                lambda: text.setSelection(
+                    0,
+                    len(text.text()),
+                )
+            )
+
+            menu.exec(text.mapToGlobal(position))
+
+        text.customContextMenuRequested.connect(
+            show_text_menu
+        )
         text.setFont(font(10))
         text.setStyleSheet(
             f"background:{PRIMARY if message.role == 'user' else MUTED};"

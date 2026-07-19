@@ -6,7 +6,9 @@ from uuid import UUID
 from chat.models import ChatContext
 from chat.routes import ChatRoute
 from orchestration.command_resolution import (
+    ArtifactAction,
     CommandResolutionError,
+    MetaStockAction,
     SemanticCommandResolver,
 )
 from orchestration.context_resolver import (
@@ -154,6 +156,42 @@ class ConversationActionPolicy:
                     context=context,
                 )
             )
+
+            external_name = self._clean_text(
+                command.explorer_reference
+            )
+            can_use_external_metastock_name = (
+                error
+                == "No stored Explorer has that exact name."
+                and command.artifact_action
+                is ArtifactAction.NONE
+                and command.metastock_action
+                in {
+                    MetaStockAction.RUN,
+                    MetaStockAction.CREATE_AND_RUN,
+                }
+                and external_name is not None
+                and not self._is_active_reference(
+                    external_name
+                )
+            )
+
+            if can_use_external_metastock_name:
+                source_explorer_id = (
+                    self._external_metastock_reference(
+                        external_name
+                    )
+                )
+                # Explicit unstored name means select/run an Explorer
+                # that already exists in MetaStock. Do not create it.
+                command = command.model_copy(
+                    update={
+                        "metastock_action": (
+                            MetaStockAction.RUN
+                        )
+                    }
+                )
+                error = None
 
             if error:
                 return self._clarify(
@@ -405,6 +443,19 @@ class ConversationActionPolicy:
             value.strip().casefold()
             in cls.ACTIVE_REFERENCE_WORDS
         )
+
+    @staticmethod
+    def _external_metastock_reference(
+        explorer_name: str,
+    ) -> str:
+        cleaned = str(explorer_name or "").strip()
+
+        if not cleaned:
+            raise ValueError(
+                "External MetaStock Explorer name is required."
+            )
+
+        return f"metastock-name:{cleaned}"
 
     @staticmethod
     def _canonical_uuid(value: Any) -> str | None:
