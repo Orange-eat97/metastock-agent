@@ -103,6 +103,9 @@ def main() -> int:
     # Establish Qt's GUI/OLE apartment before the local Automator service is
     # constructed. This avoids the Windows RPC_E_CHANGED_MODE startup warning.
     application = QApplication.instance() or QApplication([sys.argv[0]])
+    # Force Qt-rendered popup menus on Windows so text-selection
+    # context menus use the grey light palette instead of native dark.
+    application.setStyle("Fusion")
 
     rag_repo = _resolve_required_repo(args.rag_repo, "rag")
     automator_repo = _resolve_optional_repo(args.automator_repo)

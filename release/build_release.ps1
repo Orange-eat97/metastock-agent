@@ -7,9 +7,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$ExpectedAgentCommit = "95d4ea96e50ab4eb1fb6966e1809affd0a8b23a8"
-$ExpectedRagCommit = "b25164f855a8c7cde9a1ce6c97e2b95f774c7a8b"
-$ExpectedAutomatorCommit = "070826ba5354c2c391380d07fba40833049c98e9"
+$ExpectedAgentCommit = "ce9c38d833996d3064b457c18214a92f929a87a5"
+$ExpectedRagCommit = "34928954d9f4bb0eb9ce98f6df577be88b5a99d2"
+$ExpectedAutomatorCommit = "3626e2c3fa321b9069a8b993217aad2fa3c84e1b"
 
 function Assert-GitCommit {
     param(
@@ -45,7 +45,12 @@ Assert-GitCommit `
 $ReleaseRoot = Join-Path $AgentRepo "release"
 $StagingRoot = Join-Path $ReleaseRoot "staging"
 $RagTarget = Join-Path $StagingRoot "rag"
+$RagSource = Join-Path $RagRepo "src"
+$RagSourceTarget = Join-Path $RagTarget "src"
+
 $AutomatorTarget = Join-Path $StagingRoot "automator"
+$AutomatorSource = Join-Path $AutomatorRepo "main"
+$AutomatorMainTarget = Join-Path $AutomatorTarget "main"
 
 Remove-Item `
     -Path $StagingRoot `
@@ -55,50 +60,48 @@ Remove-Item `
 
 New-Item `
     -ItemType Directory `
-    -Path $RagTarget `
+    -Path $RagSourceTarget `
     -Force | Out-Null
 
 New-Item `
     -ItemType Directory `
-    -Path $AutomatorTarget `
+    -Path $AutomatorMainTarget `
     -Force | Out-Null
 
 
 # Keep the first beta conservative: copy all runtime source files,
 # excluding development and repository metadata.
 robocopy `
-    $RagRepo `
-    $RagTarget `
+    $RagSource `
+    $RagSourceTarget `
     /MIR `
     /XD `
-        ".git" `
-        ".venv" `
         "__pycache__" `
         ".pytest_cache" `
         "test" `
         "tests" `
     /XF `
-        ".env" `
-        "*.pyc"
+        "*.pyc" `
+        "*.bak*" `
+        "*.backup*"
 
 if ($LASTEXITCODE -ge 8) {
     throw "RAG staging failed with robocopy exit code $LASTEXITCODE."
 }
 
 robocopy `
-    $AutomatorRepo `
-    $AutomatorTarget `
+    $AutomatorSource `
+    $AutomatorMainTarget `
     /MIR `
     /XD `
-        ".git" `
-        ".venv" `
         "__pycache__" `
         ".pytest_cache" `
         "test" `
         "tests" `
     /XF `
-        ".env" `
-        "*.pyc"
+        "*.pyc" `
+        "*.bak*" `
+        "*.backup*"
 
 if ($LASTEXITCODE -ge 8) {
     throw "Automator staging failed with robocopy exit code $LASTEXITCODE."
