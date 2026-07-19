@@ -14,10 +14,20 @@ from chat.models import (
     MAX_RECENT_MESSAGE_CHARS,
     PlannerConversationMessage,
 )
+import re
 
 
 MAX_RECENT_PLANNER_MESSAGES = (
     MAX_RECENT_CONVERSATION_MESSAGES
+)
+
+_HIDDEN_ASSISTANT_CONTEXT_LINE = re.compile(
+    r"^\s*-\s*(?:"
+    r"Explorer ID"
+    r"|MetaStock state"
+    r"|Columns"
+    r")\s*:",
+    re.IGNORECASE,
 )
 
 
@@ -65,6 +75,11 @@ def build_recent_planner_messages(
             message.content
         )
 
+        if role == "assistant":
+            content = _sanitize_assistant_context(
+                content
+            )
+
         if not content:
             continue
 
@@ -78,6 +93,24 @@ def build_recent_planner_messages(
         )
 
     return converted[-max_messages:]
+
+
+def _sanitize_assistant_context(
+    content: str,
+) -> str:
+    """
+    Remove internal or excessive Explorer fields before an old
+    assistant message is supplied to the conversation model.
+    """
+    kept_lines = [
+        line
+        for line in content.splitlines()
+        if not _HIDDEN_ASSISTANT_CONTEXT_LINE.match(
+            line
+        )
+    ]
+
+    return "\n".join(kept_lines).strip()
 
 
 def _truncate_message(

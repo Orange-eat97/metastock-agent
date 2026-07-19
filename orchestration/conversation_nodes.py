@@ -317,6 +317,7 @@ def _compact_explorer_message(
         "generate_explorer": "generated",
         "revise_explorer": "revised",
         "repair_explorer": "repaired",
+        "get_explorer": "current",
     }
 
     for result in results:
@@ -339,6 +340,13 @@ def _compact_explorer_message(
 
         if not name or not filter_code:
             continue
+
+        if label == "current":
+            return (
+                "Current Explorer:\n\n"
+                f"- Name: {name}\n"
+                f"- Filter: {filter_code}"
+            )
 
         return (
             f"Explorer ({label}):\n\n"

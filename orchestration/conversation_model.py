@@ -59,6 +59,13 @@ Interpretation rules:
 - Running or creating in MetaStock requires an affirmative current-message
   request. Negated requests must not trigger a side effect.
 - Handle only one user turn and at most one function call.
+- When describing the active Explorer, include only its user-facing name,
+  filter, and useful stored-result summary. Do not mention Explorer IDs,
+  MetaStock lifecycle state, or column definitions unless the user
+  explicitly asks for them.
+  - Asking to show, describe, or identify the current or active Explorer requires
+  the get_explorer function. Durable context contains only an internal
+  Explorer reference and does not contain the Explorer name or filter formula.
 
 The context contains at most five completed messages. No RAG cards are present.
 RAG is invoked later only if LangGraph executes a RAG-backed step.
@@ -75,6 +82,30 @@ class ConversationDriverProtocol(Protocol):
 
 class ConversationDriverError(RuntimeError):
     pass
+
+
+def _public_durable_context(
+        request: ConversationModelRequest,
+    ) -> dict[str, Any]:
+        """
+        Expose only conversation context useful to the model.
+
+        Keep the durable Explorer ID and MetaStock lifecycle state
+        internal to orchestration.
+        """
+        context = request.context
+
+        return {
+            "has_active_explorer": (
+                context.active_explorer_id is not None
+            ),
+            "active_result_id": (
+                context.active_result_id
+            ),
+            "active_service_log_id": (
+                context.active_service_log_id
+            ),
+        }
 
 
 class OpenAIConversationDriver:
@@ -112,7 +143,7 @@ class OpenAIConversationDriver:
             CONVERSATION_SYSTEM_PROMPT
             + "\n\nActive durable context:\n"
             + json.dumps(
-                request.context.model_dump(mode="json"),
+                _public_durable_context(request),
                 ensure_ascii=False,
             )
         )
