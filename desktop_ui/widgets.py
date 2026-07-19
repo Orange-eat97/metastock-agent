@@ -1631,7 +1631,7 @@ class ChatArea(QFrame):
         input_layout.setSpacing(7)
         self._editor = MessageEditor()
         self._editor.setPlaceholderText(
-            "Ask MetaStock Agentâ€¦ e.g. Run this Explorer on "
+            "Ask MetaStock Agent\u2026 e.g. Run this Explorer on "
             "SGX Mainboard, My Momentum List"
         )
         self._editor.submit_requested.connect(self._send)
@@ -1687,7 +1687,7 @@ class ChatArea(QFrame):
         input_layout.addWidget(self._send_button, 0, Qt.AlignmentFlag.AlignVCenter)
         hint = QLabel(
             "Use exact MetaStock instrument/list labels in the message "
-            "Â· separate multiple labels with commas Â· Shift+Enter for new line"
+            "\u00b7 separate multiple labels with commas \u00b7 Shift+Enter for new line"
         )
         hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         hint.setFont(font(7))
