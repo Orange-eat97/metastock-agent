@@ -81,13 +81,6 @@ class LocalRagClient:
         from src.rag_explorer_update_service import (
             RagExplorerUpdateService,
         )
-        from src.rag_explorer_upload_service import (
-            RagExplorerUploadService,
-        )
-        from src.rag_system_test_service import (
-            ConvertExplorerToSystemTestInput as RagSystemTestInput,
-            RagSystemTestConversionService,
-        )
         from src.rag_result_store_service import (
             RagExplorerResultStoreService,
         )
@@ -113,15 +106,6 @@ class LocalRagClient:
         )
         self._update_service = (
             RagExplorerUpdateService()
-        )
-        self._upload_service = (
-            RagExplorerUploadService()
-        )
-        self._system_test_service = (
-            RagSystemTestConversionService()
-        )
-        self._rag_system_test_input = (
-            RagSystemTestInput
         )
         self._result_store_service = (
             RagExplorerResultStoreService()
@@ -284,32 +268,6 @@ class LocalRagClient:
                 )
             ],
         )
-
-    def upload_explorer(
-        self,
-        explorer_output: dict[str, Any],
-    ) -> dict[str, Any]:
-        response = (
-            self._upload_service
-            .upload_explorer(explorer_output)
-        )
-        return self._read_service.get_explorer(
-            str(response.explorer)
-        )
-
-    def convert_explorer_to_system_test(
-        self,
-        explorer_id: str,
-    ) -> dict[str, Any]:
-        response = (
-            self._system_test_service
-            .convert_explorer_to_system_test(
-                self._rag_system_test_input(
-                    source_explorer_id=explorer_id,
-                )
-            )
-        )
-        return response.model_dump(mode="json")
 
     def get_explorer(
         self,

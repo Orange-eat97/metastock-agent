@@ -13,9 +13,6 @@ from PySide6.QtWidgets import (
 )
 
 from .backend_port import ConversationBackendPort
-from .explorer_template import (
-    parse_explorer_template,
-)
 from .demo_backend import DemoConversationBackend
 from .models import (
     ChatMessageViewModel,
@@ -30,9 +27,6 @@ from .theme import BG, apply_light_theme
 from .widgets import (
     ChatArea,
     ConversationSidebar,
-)
-from services.explorer_upload_protocol import (
-    encode_explorer_upload_envelope,
 )
 from .workers import (
     ConversationExportWorker,
@@ -184,47 +178,6 @@ class MainWindow(QMainWindow):
     ) -> None:
         if self._turn_thread is not None or not self._active_conversation_id:
             return
-        if explorer_id.startswith("transient:"):
-            backend_text = (
-                encode_explorer_upload_envelope(
-                    draft_id=explorer_id,
-                    name=patch.name,
-                    description=patch.description,
-                    columns=[
-                        {
-                            "col_letter": item.label,
-                            "col_code": item.formula,
-                        }
-                        for item in patch.columns
-                    ],
-                    filter_code=(
-                        patch.filter_formula
-                    ),
-                    assumptions=list(
-                        patch.assumptions
-                    ),
-                    frontend_errors=[],
-                    display_text=(
-                        "Upload Explorer: "
-                        + (
-                            patch.name
-                            or "Untitled Explorer"
-                        )
-                    ),
-                )
-            )
-            self._start_turn_payload(
-                display_text=(
-                    "Upload Explorer: "
-                    + (
-                        patch.name
-                        or "Untitled Explorer"
-                    )
-                ),
-                backend_text=backend_text,
-            )
-            return
-
         self.chat.set_running(True)
         self.sidebar.set_running(True)
         self.chat.status_bar.set_progress(
@@ -348,55 +301,6 @@ class MainWindow(QMainWindow):
         thread.start()
 
     def _start_turn(self, text: str) -> None:
-        parsed = parse_explorer_template(text)
-        if parsed.matched:
-            patch = parsed.patch
-            if patch is None:
-                raise RuntimeError(
-                    "Explorer template parser returned "
-                    "no draft."
-                )
-            backend_text = (
-                encode_explorer_upload_envelope(
-                    draft_id="transient:template",
-                    name=patch.name,
-                    description=patch.description,
-                    columns=[
-                        {
-                            "col_letter": item.label,
-                            "col_code": item.formula,
-                        }
-                        for item in patch.columns
-                    ],
-                    filter_code=(
-                        patch.filter_formula
-                    ),
-                    assumptions=list(
-                        patch.assumptions
-                    ),
-                    frontend_errors=list(
-                        parsed.errors
-                    ),
-                    display_text=text,
-                )
-            )
-            self._start_turn_payload(
-                display_text=text,
-                backend_text=backend_text,
-            )
-            return
-
-        self._start_turn_payload(
-            display_text=text,
-            backend_text=text,
-        )
-
-    def _start_turn_payload(
-        self,
-        *,
-        display_text: str,
-        backend_text: str,
-    ) -> None:
         if self._turn_thread is not None or not self._active_conversation_id:
             return
 
@@ -404,7 +308,7 @@ class MainWindow(QMainWindow):
         self.chat.add_message(
             ChatMessageViewModel(
                 role="user",
-                text=display_text,
+                text=text,
                 created_at="Now",
             )
         )
@@ -417,7 +321,7 @@ class MainWindow(QMainWindow):
         worker = TurnWorker(
             self._backend,
             conversation_id,
-            backend_text,
+            text,
         )
         worker.progress.connect(self._on_turn_progress)
         self._start_background_worker(

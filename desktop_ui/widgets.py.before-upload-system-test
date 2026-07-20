@@ -770,12 +770,6 @@ class ExplorerInlineCard(QFrame):
     ) -> None:
         super().__init__(parent)
         self._explorer = explorer
-        self._is_transient = bool(
-            explorer.is_transient
-            or explorer.explorer_id.startswith(
-                "transient:"
-            )
-        )
         self.setObjectName("explorerCard")
         self.setStyleSheet(
             "QFrame#explorerCard {"
@@ -787,14 +781,7 @@ class ExplorerInlineCard(QFrame):
         self._root.setSpacing(8)
 
         header = QHBoxLayout()
-        self._title = QLabel(
-            explorer.name
-            or (
-                "New Explorer upload"
-                if self._is_transient
-                else "Explorer"
-            )
-        )
+        self._title = QLabel(explorer.name or "Explorer")
         self._title.setFont(font(10, QFont.Weight.DemiBold))
         self._title.setStyleSheet(f"color:{FG};")
         header.addWidget(self._title)
@@ -802,48 +789,21 @@ class ExplorerInlineCard(QFrame):
 
         self._edit_button = _plain_button("Edit")
         self._edit_button.setToolTip(
-            (
-                "Complete the Explorer fields and upload."
-                if self._is_transient
-                else (
-                    "Edit stored Explorer fields directly. "
-                    "This does not call AI."
-                )
-            )
+            "Edit stored Explorer fields directly. This does not call AI."
         )
         self._edit_button.clicked.connect(self._show_editor)
         header.addWidget(self._edit_button)
-        if self._is_transient:
-            self._edit_button.hide()
 
         validation = QLabel(
-            (
-                "✎  DRAFT"
-                if self._is_transient
-                and not explorer.validation_errors
-                else "✕  INVALID DRAFT"
-                if self._is_transient
-                else "✓  VALID"
-                if explorer.validation_status == "passed"
-                else "✕  INVALID"
-                if explorer.validation_status == "failed"
-                else "…  PENDING"
-            )
+            "✓  VALID" if explorer.validation_status == "passed" else
+            "✕  INVALID" if explorer.validation_status == "failed" else
+            "…  PENDING"
         )
         validation.setFont(font(7, QFont.Weight.DemiBold))
         validation_color = (
-            ERROR
-            if (
-                self._is_transient
-                and explorer.validation_errors
-            )
-            else FG_DIM
-            if self._is_transient
-            else SUCCESS_DARK
-            if explorer.validation_status == "passed"
-            else ERROR
-            if explorer.validation_status == "failed"
-            else FG_DIM
+            SUCCESS_DARK if explorer.validation_status == "passed" else
+            ERROR if explorer.validation_status == "failed" else
+            FG_DIM
         )
         validation.setStyleSheet(
             f"color:{validation_color}; background:{MUTED_SOFT};"
@@ -960,11 +920,7 @@ class ExplorerInlineCard(QFrame):
         actions.addStretch()
         cancel = _plain_button("Cancel")
         cancel.clicked.connect(self._hide_editor)
-        self._save_button = QPushButton(
-            "Upload"
-            if self._is_transient
-            else "Save"
-        )
+        self._save_button = QPushButton("Save")
         self._save_button.setFont(font(8, QFont.Weight.Medium))
         self._save_button.setFixedHeight(26)
         self._save_button.setStyleSheet(
@@ -980,12 +936,6 @@ class ExplorerInlineCard(QFrame):
         self._editor_panel.hide()
         self._root.addWidget(self._editor_panel)
         self._refresh_column_controls()
-        if self._is_transient:
-            self._show_editor()
-            if explorer.validation_errors:
-                self.show_save_errors(
-                    list(explorer.validation_errors)
-                )
 
     @property
     def explorer_id(self) -> str:
@@ -1078,19 +1028,7 @@ class ExplorerInlineCard(QFrame):
 
     def set_saving(self, saving: bool) -> None:
         self._save_button.setEnabled(not saving)
-        self._save_button.setText(
-            (
-                "Uploading…"
-                if self._is_transient
-                else "Saving…"
-            )
-            if saving
-            else (
-                "Upload"
-                if self._is_transient
-                else "Save"
-            )
-        )
+        self._save_button.setText("Saving…" if saving else "Save")
         self._add_column_button.setEnabled(
             not saving and len(self._column_rows) < self.MAX_COLUMNS
         )

@@ -8,17 +8,13 @@ from pydantic import BaseModel
 
 from tools.explorer_tools import ExplorerToolService
 from tools.result_tools import MetaStockResultToolService
-from tools.system_test_tools import SystemTestToolService
 from tools.tool_contracts import (
-    ConvertExplorerToSystemTestInput,
     GenerateExplorerInput,
     GetExplorerInput,
-    GetExplorerUploadTemplateInput,
     GetExplorerResultInput,
     GetLatestExplorerResultInput,
     GetRagLogInput,
     ListExplorerResultsInput,
-    PrepareExplorerUploadInput,
     ReadMetaStockResultsInput,
     RepairExplorerInput,
     ReviseExplorerInput,
@@ -26,7 +22,6 @@ from tools.tool_contracts import (
     ToolError,
     ToolResult,
     ToolStatus,
-    UploadExplorerInput,
 )
 
 
@@ -65,18 +60,12 @@ class ToolRegistry:
         self,
         explorer_tool_service: ExplorerToolService,
         result_tool_service: MetaStockResultToolService,
-        system_test_tool_service: (
-            SystemTestToolService | None
-        ) = None,
     ) -> None:
         self.explorer_tool_service = (
             explorer_tool_service
         )
         self.result_tool_service = (
             result_tool_service
-        )
-        self.system_test_tool_service = (
-            system_test_tool_service
         )
         self._tools = self._build_tools()
 
@@ -136,44 +125,6 @@ class ToolRegistry:
         self,
     ) -> dict[str, ToolDefinition]:
         tools = [
-            ToolDefinition(
-                name="prepare_explorer_upload",
-                description=(
-                    "Show a blank editable Explorer "
-                    "upload card."
-                ),
-                input_model=PrepareExplorerUploadInput,
-                handler=(
-                    self.explorer_tool_service
-                    .prepare_explorer_upload
-                ),
-            ),
-            ToolDefinition(
-                name="get_explorer_upload_template",
-                description=(
-                    "Return the deterministic text "
-                    "template for uploading an Explorer."
-                ),
-                input_model=(
-                    GetExplorerUploadTemplateInput
-                ),
-                handler=(
-                    self.explorer_tool_service
-                    .get_explorer_upload_template
-                ),
-            ),
-            ToolDefinition(
-                name="upload_explorer",
-                description=(
-                    "Validate and store structured "
-                    "user-supplied Explorer fields."
-                ),
-                input_model=UploadExplorerInput,
-                handler=(
-                    self.explorer_tool_service
-                    .upload_explorer
-                ),
-            ),
             ToolDefinition(
                 name="generate_explorer",
                 description=(
@@ -339,30 +290,6 @@ class ToolRegistry:
                 ),
             ),
         ]
-
-        if self.system_test_tool_service is not None:
-            tools.append(
-                ToolDefinition(
-                    name=(
-                        "convert_explorer_to_system_test"
-                    ),
-                    description=(
-                        "Convert one validated stored "
-                        "Explorer into a long-only System "
-                        "Test for manual entry."
-                    ),
-                    input_model=(
-                        ConvertExplorerToSystemTestInput
-                    ),
-                    handler=(
-                        self.system_test_tool_service
-                        .convert_explorer_to_system_test
-                    ),
-                    exposure=(
-                        ToolExposure.WORKFLOW_INTERNAL
-                    ),
-                )
-            )
 
         return {
             tool.name: tool

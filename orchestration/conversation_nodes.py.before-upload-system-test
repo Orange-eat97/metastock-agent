@@ -15,16 +15,12 @@ from orchestration.context_resolver import (
     DecisionResolution,
 )
 from orchestration.conversation_actions import (
-    ConversationActionCall,
     ConversationModelRequest,
     ConversationModelResponse,
     build_conversation_actions,
 )
 from orchestration.conversation_model import (
     ConversationDriverProtocol,
-)
-from services.explorer_upload_protocol import (
-    decode_explorer_upload_envelope,
 )
 from orchestration.response_composer import (
     ResponseComposerProtocol,
@@ -101,26 +97,9 @@ class ConverseNode:
                 self._workflows,
             ),
         )
-        upload_arguments = (
-            decode_explorer_upload_envelope(
-                payload.user_message
-            )
+        response = self._driver.converse(
+            request
         )
-        if upload_arguments is not None:
-            upload_arguments.pop(
-                "display_text",
-                None,
-            )
-            response = ConversationModelResponse(
-                action_call=ConversationActionCall(
-                    name="upload_explorer",
-                    arguments=upload_arguments,
-                )
-            )
-        else:
-            response = self._driver.converse(
-                request
-            )
 
         return {
             "conversation_request": (
@@ -260,14 +239,10 @@ class ComposeConversationResultNode:
         compact_explorer_message = (
             _compact_explorer_message(results)
         )
-        deterministic_message = (
-            _deterministic_display_message(results)
-        )
 
         return {
             "composed_response": (
                 compact_explorer_message
-                or deterministic_message
                 or self._composer.compose(
                     request
                 ).strip()
@@ -333,22 +308,6 @@ class FinalizeConversationTurnNode:
         }
 
 
-def _deterministic_display_message(
-    results: list[ToolResult],
-) -> str | None:
-    protected_tools = {
-        "prepare_explorer_upload",
-        "get_explorer_upload_template",
-        "upload_explorer",
-        "convert_explorer_to_system_test",
-    }
-    for result in reversed(results):
-        if result.tool_name not in protected_tools:
-            continue
-        return _assistant_message(result)
-    return None
-
-
 def _compact_explorer_message(
     results: list[ToolResult],
 ) -> str | None:
@@ -359,7 +318,6 @@ def _compact_explorer_message(
         "revise_explorer": "revised",
         "repair_explorer": "repaired",
         "get_explorer": "current",
-        "upload_explorer": "uploaded",
     }
 
     for result in results:
