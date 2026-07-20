@@ -10,7 +10,6 @@ ARTIFACT_CREATING_TOOLS = {
     "generate_explorer",
     "repair_explorer",
     "revise_explorer",
-    "upload_explorer",
 }
 METASTOCK_PROOF_TOOLS = {
     "create_explorer_in_metastock",
@@ -31,9 +30,6 @@ def update_context_from_tool_result(
     MetaStock. Successful create/select/run proves that it exists there.
     """
     if not result.ok:
-        return current.model_copy(deep=True)
-
-    if result.tool_name == "prepare_explorer_upload":
         return current.model_copy(deep=True)
 
     data: dict[str, Any] = result.data or {}

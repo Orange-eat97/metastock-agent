@@ -121,74 +121,6 @@ DIRECT_ACTION_SCHEMAS: dict[str, dict[str, Any]] = {
         },
         "additionalProperties": False,
     },
-    "prepare_explorer_upload": {
-        "type": "object",
-        "properties": {},
-        "additionalProperties": False,
-    },
-    "get_explorer_upload_template": {
-        "type": "object",
-        "properties": {},
-        "additionalProperties": False,
-    },
-    "upload_explorer": {
-        "type": "object",
-        "properties": {
-            "draft_id": {
-                "type": "string",
-            },
-            "name": {
-                "type": "string",
-            },
-            "description": {
-                "type": "string",
-            },
-            "columns": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "col_letter": {
-                            "type": "string",
-                        },
-                        "col_code": {
-                            "type": "string",
-                        },
-                    },
-                    "required": [
-                        "col_letter",
-                        "col_code",
-                    ],
-                    "additionalProperties": False,
-                },
-            },
-            "filter_code": {
-                "type": "string",
-            },
-            "assumptions": {
-                "type": "array",
-                "items": {
-                    "type": "string",
-                },
-            },
-            "frontend_errors": {
-                "type": "array",
-                "items": {
-                    "type": "string",
-                },
-            },
-        },
-        "required": [
-            "draft_id",
-            "name",
-            "description",
-            "columns",
-            "filter_code",
-            "assumptions",
-            "frontend_errors",
-        ],
-        "additionalProperties": False,
-    },
 }
 
 
@@ -200,7 +132,6 @@ LIFECYCLE_TOOL_NAMES = {
     "select_explorer_in_metastock",
     "run_selected_explorer_in_metastock",
     "read_metastock_explorer_results",
-    "convert_explorer_to_system_test",
 }
 
 
@@ -217,13 +148,6 @@ def _command_schema(
 
     if "repair_explorer" in enabled_tool_names:
         artifact_actions.append("repair")
-
-    system_test_actions = ["none"]
-    if (
-        "convert_explorer_to_system_test"
-        in enabled_tool_names
-    ):
-        system_test_actions.append("convert")
 
     metastock_actions = ["none"]
 
@@ -261,16 +185,6 @@ def _command_schema(
                     "request; revise intentionally changes an existing "
                     "Explorer; repair fixes syntax or contract errors; none "
                     "uses the existing referenced Explorer unchanged."
-                ),
-            },
-            "system_test_action": {
-                "type": "string",
-                "enum": system_test_actions,
-                "description": (
-                    "convert turns one existing validated "
-                    "stored Explorer into a long-only "
-                    "System Test for manual entry. Use "
-                    "none for all other requests."
                 ),
             },
             "explorer_reference": EXPLORER_REFERENCE_SCHEMA,
@@ -322,7 +236,6 @@ def _command_schema(
         },
         "required": [
             "artifact_action",
-            "system_test_action",
             "metastock_action",
             "result_action",
         ],
@@ -384,9 +297,8 @@ def build_conversation_actions(
                 description=(
                     "Resolve and execute one complete Explorer lifecycle "
                     "command. Use this single function for generation, "
-                    "revision, repair, System Test conversion, MetaStock "
-                    "creation, running, and fresh result capture, including "
-                    "compound requests. Keep these "
+                    "revision, repair, MetaStock creation, running, and fresh "
+                    "result capture, including compound requests. Keep these "
                     "intent dimensions separate in the arguments."
                 ),
                 kind="command",

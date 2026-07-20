@@ -26,11 +26,6 @@ from src.system_test_validator import validate_system_test_definition
 
 
 SYSTEM_TEST_TABLE = "system_test_outputs"
-FIXED_PROFIT_TARGET_EXIT = (
-    "EntryPrice := C - "
-    "Simulation.CurrentPositionPointDifference;\n"
-    "H >= EntryPrice * 1.20"
-)
 SYSTEM_TEST_CONTEXT_PATHS = [
     "references/system_tester_environment.md",
     "references/simulation_functions.md",
@@ -45,7 +40,10 @@ class SystemTestConversionNeedsExitError(ValueError):
 
 class ConvertExplorerToSystemTestInput(BaseModel):
     source_explorer_id: UUID
+    name: str = Field(min_length=1, max_length=160)
     description: str | None = None
+    sell_signal_formula: str | None = None
+    conversion_instruction: str | None = None
 
 
 class GeneratedExitSignal(BaseModel):
@@ -75,10 +73,12 @@ class RagSystemTestConversionService(_RagServiceBase):
     """Convert one validated Explorer artifact into an Automator-ready System Test.
 
     The buy side is deterministic: the expanded Explorer filter is preserved and
-    guarded so that at most one long position can be open.
+    guarded so that at most one long position can be open. The sell side is:
 
-    The sell side is also deterministic and always uses the project's fixed
-    20 percent profit-target formula.
+    1. the explicit sell_signal_formula supplied by the caller;
+    2. a safely reversible Cross(A,B) converted to Cross(B,A); or
+    3. generated from a caller-provided conversion_instruction using only the
+       dedicated Primer-derived System Tester context cards.
 
     The service stores a new immutable system_test_outputs artifact. It never
     invokes pywinauto or MetaStock directly.
@@ -114,36 +114,40 @@ class RagSystemTestConversionService(_RagServiceBase):
         expanded = expand_explorer_filter(explorer_output)
         buy_formula = self._build_buy_signal(expanded.expanded_filter)
 
-        _context, retrieved_refs = (
-            self._load_system_test_context()
-        )
-        sell_formula = FIXED_PROFIT_TARGET_EXIT
+        retrieved_refs: list[RetrievedCardRef] = []
+        sell_formula = str(payload.sell_signal_formula or "").strip()
 
-        source_name = str(
-            explorer_output.get("explorer_name") or ""
-        ).strip()
-        if not source_name:
-            raise ValueError(
-                "Stored Explorer is missing explorer_name."
-            )
-        system_test_name = (
-            f"AI - {source_name} - System Test"
-        )
+        if not sell_formula:
+            sell_formula = self._reverse_simple_cross(expanded.expanded_filter) or ""
+
+        if not sell_formula:
+            instruction = str(payload.conversion_instruction or "").strip()
+            if not instruction:
+                raise SystemTestConversionNeedsExitError(
+                    "The Explorer entry filter does not have an unambiguous reversible "
+                    "Cross(A,B) exit. Supply sell_signal_formula or a precise "
+                    "conversion_instruction for the long exit."
+                )
+
+            context, retrieved_refs = self._load_system_test_context()
+            sell_formula = self.exit_signal_generator(
+                explorer_output,
+                expanded.expanded_filter,
+                instruction,
+                context,
+            ).strip()
 
         system_test_id = uuid4()
         description = (
             str(payload.description).strip()
             if payload.description is not None
-            else (
-                "Created from a validated Explorer output with "
-                "a fixed 20 percent profit-target exit."
-            )
+            else "Created from a validated Explorer output."
         )
 
         definition = SystemTestDefinition(
             system_test_id=system_test_id,
             source_explorer_id=payload.source_explorer_id,
-            name=system_test_name,
+            name=payload.name,
             description=description,
             general=GeneralSettings(
                 order_bias="long",

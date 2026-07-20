@@ -48,11 +48,6 @@ class ConversationActionPolicy:
     LOG_ID_TOOLS = {
         "get_rag_log",
     }
-    PASSTHROUGH_TOOLS = {
-        "prepare_explorer_upload",
-        "get_explorer_upload_template",
-        "upload_explorer",
-    }
     ACTIVE_REFERENCE_WORDS = {
         "active",
         "current",
@@ -271,11 +266,7 @@ class ConversationActionPolicy:
                 action.name,
             )
 
-        resolved_arguments: dict[str, Any] = (
-            dict(arguments)
-            if action.name in self.PASSTHROUGH_TOOLS
-            else {}
-        )
+        resolved_arguments: dict[str, Any] = {}
 
         if action.name in self.EXPLORER_ID_TOOLS:
             explorer_id, error = self._resolve_explorer_id(
@@ -329,7 +320,7 @@ class ConversationActionPolicy:
             arguments=resolved_arguments,
             decision_reason=(
                 "The conversation model selected "
-                f"conversation tool {action.name}."
+                f"read-only tool {action.name}."
             ),
         )
 

@@ -68,8 +68,6 @@ class ExplorerDTO(BaseModel):
     source: str | None = None
     service_log_id: str | None = None
     service_log_created_at: str | None = None
-    manual_edit_version: int = 0
-    is_transient: bool = False
 
 
 class GenerateExplorerInput(BaseModel):
@@ -156,76 +154,6 @@ class GetRagLogOutput(BaseModel):
     stdout_text: str
     stderr_text: str
     metadata: dict[str, Any] = Field(default_factory=dict)
-
-
-class PrepareExplorerUploadInput(BaseModel):
-    pass
-
-
-class PrepareExplorerUploadOutput(BaseModel):
-    explorer: ExplorerDTO
-
-
-class GetExplorerUploadTemplateInput(BaseModel):
-    pass
-
-
-class GetExplorerUploadTemplateOutput(BaseModel):
-    template_text: str
-
-
-class UploadExplorerInput(BaseModel):
-    draft_id: str = Field(min_length=1)
-    name: str = ""
-    description: str = ""
-    columns: list[ExplorerColumnDTO] = Field(
-        default_factory=list
-    )
-    filter_code: str = ""
-    assumptions: list[str] = Field(
-        default_factory=list
-    )
-    frontend_errors: list[str] = Field(
-        default_factory=list
-    )
-
-
-class UploadExplorerOutput(BaseModel):
-    explorer: ExplorerDTO
-
-
-class SystemTestSettingsDTO(BaseModel):
-    order_bias: str
-    portfolio_bias: str
-    position_limit_enabled: bool
-    max_positions: int
-    buy_enabled: bool
-    sell_enabled: bool
-    sell_short_enabled: bool
-    buy_to_cover_enabled: bool
-    stops_enabled: bool
-    optimizations_enabled: bool
-
-
-class ConvertExplorerToSystemTestInput(BaseModel):
-    explorer_id: str = Field(
-        min_length=1,
-        description=(
-            "Validated explorer_outputs ID to convert."
-        ),
-    )
-
-
-class ConvertExplorerToSystemTestOutput(BaseModel):
-    system_test_id: str
-    explorer_id: str
-    name: str
-    description: str
-    buy_formula: str
-    sell_formula: str
-    settings: SystemTestSettingsDTO
-    validation: ValidationDTO
-    service_log_id: str | None = None
 
 
 class RunExplorerInput(BaseModel):

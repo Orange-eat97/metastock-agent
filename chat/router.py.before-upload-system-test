@@ -27,45 +27,6 @@ class DeterministicChatRouter:
 
         self._rules = (
             RouteRule(
-                route=(
-                    ChatRoute
-                    .GET_EXPLORER_UPLOAD_TEMPLATE
-                ),
-                patterns=tuple(
-                    re.compile(pattern, flags)
-                    for pattern in (
-                        r"\b(explorer|exploration)\b.*\b(upload|import)\b.*\btemplate\b",
-                        r"\btemplate\b.*\b(explorer|exploration)\b",
-                    )
-                ),
-            ),
-            RouteRule(
-                route=(
-                    ChatRoute
-                    .PREPARE_EXPLORER_UPLOAD
-                ),
-                patterns=tuple(
-                    re.compile(pattern, flags)
-                    for pattern in (
-                        r"\b(upload|import)\b.*\b(explorer|exploration)\b",
-                        r"\b(explorer|exploration)\b.*\b(upload|import)\b",
-                    )
-                ),
-            ),
-            RouteRule(
-                route=(
-                    ChatRoute
-                    .CONVERT_EXPLORER_TO_SYSTEM_TEST
-                ),
-                patterns=tuple(
-                    re.compile(pattern, flags)
-                    for pattern in (
-                        r"\b(system\s*test|system tester)\b.*\b(code|formula|convert|create|generate)\b",
-                        r"\b(convert|create|generate)\b.*\b(system\s*test|system tester)\b",
-                    )
-                ),
-            ),
-            RouteRule(
                 route=ChatRoute.GET_RAG_LOG,
                 patterns=tuple(
                     re.compile(pattern, flags)

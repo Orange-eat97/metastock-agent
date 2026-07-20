@@ -22,11 +22,6 @@ class ArtifactAction(str, Enum):
     REPAIR = "repair"
 
 
-class SystemTestAction(str, Enum):
-    NONE = "none"
-    CONVERT = "convert"
-
-
 class MetaStockAction(str, Enum):
     NONE = "none"
     CREATE = "create"
@@ -55,7 +50,6 @@ class ExplorerCommandArguments(BaseModel):
     """
 
     artifact_action: ArtifactAction
-    system_test_action: SystemTestAction = SystemTestAction.NONE
     explorer_reference: str | None = None
     resolved_instruction: str | None = None
     metastock_action: MetaStockAction
@@ -108,8 +102,6 @@ class ExplorerCommandArguments(BaseModel):
 
         if (
             self.artifact_action is ArtifactAction.NONE
-            and self.system_test_action
-            is SystemTestAction.NONE
             and self.metastock_action is MetaStockAction.NONE
             and self.result_action is ResultAction.NONE
         ):
@@ -117,31 +109,11 @@ class ExplorerCommandArguments(BaseModel):
                 "The semantic command does not request an action."
             )
 
-        if (
-            self.system_test_action
-            is SystemTestAction.CONVERT
-            and (
-                self.artifact_action
-                is not ArtifactAction.NONE
-                or self.metastock_action
-                is not MetaStockAction.NONE
-                or self.result_action
-                is not ResultAction.NONE
-            )
-        ):
-            raise ValueError(
-                "System Test conversion requires one "
-                "existing stored Explorer and cannot be "
-                "combined with Explorer generation, "
-                "MetaStock UI actions, or result capture."
-            )
-
         return self
 
 
 class NormalizedExplorerCommand(BaseModel):
     artifact_action: ArtifactAction
-    system_test_action: SystemTestAction = SystemTestAction.NONE
     explorer_reference: str | None = None
     resolved_instruction: str | None = None
     metastock_action: MetaStockAction
@@ -150,15 +122,11 @@ class NormalizedExplorerCommand(BaseModel):
 
     @property
     def needs_source_explorer(self) -> bool:
-        return (
-            self.system_test_action
-            is SystemTestAction.CONVERT
-            or self.artifact_action in {
-                ArtifactAction.NONE,
-                ArtifactAction.REVISE,
-                ArtifactAction.REPAIR,
-            }
-        )
+        return self.artifact_action in {
+            ArtifactAction.NONE,
+            ArtifactAction.REVISE,
+            ArtifactAction.REPAIR,
+        }
 
     @property
     def produces_new_explorer(self) -> bool:
@@ -170,12 +138,6 @@ class NormalizedExplorerCommand(BaseModel):
 
     @property
     def workflow_name(self) -> str:
-        if (
-            self.system_test_action
-            is SystemTestAction.CONVERT
-        ):
-            return "convert_explorer_to_system_test"
-
         parts: list[str] = []
 
         if self.artifact_action is not ArtifactAction.NONE:
@@ -225,9 +187,6 @@ class NormalizedExplorerCommand(BaseModel):
     @property
     def route(self) -> ChatRoute:
         mapping = {
-            "convert_explorer_to_system_test": (
-                ChatRoute.CONVERT_EXPLORER_TO_SYSTEM_TEST
-            ),
             "generate_explorer": ChatRoute.GENERATE_EXPLORER,
             "generate_create": ChatRoute.GENERATE_AND_CREATE_EXPLORER,
             "generate_create_run": (
@@ -460,9 +419,6 @@ class SemanticCommandResolver:
 
         return NormalizedExplorerCommand(
             artifact_action=command.artifact_action,
-            system_test_action=(
-                command.system_test_action
-            ),
             explorer_reference=command.explorer_reference,
             resolved_instruction=command.resolved_instruction,
             metastock_action=metastock_action,

@@ -89,18 +89,6 @@ class ExplorerRepository:
             patch=patch,
         )
 
-    def upload_explorer(
-        self,
-        explorer_output: dict[str, Any],
-    ) -> dict[str, Any]:
-        if not isinstance(explorer_output, dict):
-            raise ValueError(
-                "explorer_output must be a dictionary."
-            )
-        return self.rag_client.upload_explorer(
-            explorer_output
-        )
-
     def get_service_log(self, log_id: str) -> dict[str, Any]:
         cleaned = self._clean_required_text(log_id, "log_id")
         return self.rag_client.get_service_log(cleaned)

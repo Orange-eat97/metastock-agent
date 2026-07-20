@@ -20,6 +20,9 @@ from chat.routes import (
 from chat.router import (
     DeterministicChatRouter,
 )
+
+from chat.result_mapper import update_context_from_tool_result
+
 from orchestration.context_resolver import (
     ExplorerReferenceResolverProtocol,
 )
@@ -229,14 +232,32 @@ class LangGraphOrchestrator:
             "get_explorer",
             {"explorer_id": explorer_id},
         )
-        return ChatTurnOutput(
-            assistant_message=(
+
+        next_context = update_context_from_tool_result(
+            payload.context,
+            tool_result,
+        )
+
+        if (
+            tool_result.display is not None
+            and tool_result.display.markdown.strip()
+        ):
+            assistant_message = (
+                tool_result.display.markdown
+            )
+        elif tool_result.ok:
+            assistant_message = (
                 "Here is the current Explorer."
-                if tool_result.ok
-                else tool_result.message
-            ),
+            )
+        else:
+            assistant_message = (
+                tool_result.message
+            )
+
+        return ChatTurnOutput(
+            assistant_message=assistant_message,
             route=ChatRoute.GET_EXPLORER,
-            context=payload.context,
+            context=next_context,
             tool_result=tool_result,
         )
 

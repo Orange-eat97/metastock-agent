@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import traceback
 from typing import Any
-from uuid import uuid4
 
 from services.automator_client import (
     AutomatorClient,
@@ -11,9 +10,6 @@ from services.automator_client import (
     UnavailableAutomatorClient,
 )
 from services.explorer_repository import ExplorerRepository
-from services.explorer_upload_protocol import (
-    EXPLORER_TEMPLATE_TEXT,
-)
 from agent_workflows.explorer_review_workflow import (
     ExplorerReviewState,
     ExplorerReviewWorkflow,
@@ -24,14 +20,10 @@ from tools.tool_contracts import (
     ExplorerDTO,
     GenerateExplorerInput,
     GenerateExplorerOutput,
-    GetExplorerUploadTemplateInput,
-    GetExplorerUploadTemplateOutput,
     GetExplorerInput,
     GetExplorerOutput,
     GetRagLogInput,
     GetRagLogOutput,
-    PrepareExplorerUploadInput,
-    PrepareExplorerUploadOutput,
     RepairExplorerInput,
     RepairExplorerOutput,
     ReviseExplorerInput,
@@ -42,8 +34,6 @@ from tools.tool_contracts import (
     ToolError,
     ToolResult,
     ToolStatus,
-    UploadExplorerInput,
-    UploadExplorerOutput,
     ValidationDTO,
 )
 
@@ -99,175 +89,6 @@ class ExplorerToolService:
             return self._exception_result(
                 tool_name="generate_explorer",
                 exc=exc,
-            )
-
-    def prepare_explorer_upload(
-        self,
-        payload: PrepareExplorerUploadInput,
-    ) -> ToolResult:
-        del payload
-        explorer = self._transient_upload_dto(
-            draft_id=f"transient:{uuid4()}",
-            name="",
-            description="",
-            columns=[
-                ExplorerColumnDTO(
-                    col_letter="A",
-                    col_code="",
-                )
-            ],
-            filter_code="",
-            assumptions=[],
-            errors=[],
-        )
-        output = PrepareExplorerUploadOutput(
-            explorer=explorer
-        )
-        return ToolResult(
-            tool_name="prepare_explorer_upload",
-            ok=True,
-            status=ToolStatus.SUCCESS,
-            message="Explorer upload card prepared.",
-            data=output.model_dump(mode="json"),
-            display=ToolDisplay(
-                title="Upload Explorer",
-                markdown=(
-                    "Fill in the Explorer card, then "
-                    "select **Upload**."
-                ),
-                severity="info",
-            ),
-        )
-
-    def get_explorer_upload_template(
-        self,
-        payload: GetExplorerUploadTemplateInput,
-    ) -> ToolResult:
-        del payload
-        output = GetExplorerUploadTemplateOutput(
-            template_text=EXPLORER_TEMPLATE_TEXT
-        )
-        return ToolResult(
-            tool_name="get_explorer_upload_template",
-            ok=True,
-            status=ToolStatus.SUCCESS,
-            message="Explorer upload template returned.",
-            data=output.model_dump(mode="json"),
-            display=ToolDisplay(
-                title="Explorer Upload Template",
-                markdown="\n".join(
-                    [
-                        (
-                            "Fill this template and send "
-                            "the complete text back:"
-                        ),
-                        "",
-                        "```text",
-                        EXPLORER_TEMPLATE_TEXT,
-                        "```",
-                    ]
-                ),
-                severity="info",
-            ),
-        )
-
-    def upload_explorer(
-        self,
-        payload: UploadExplorerInput,
-    ) -> ToolResult:
-        transient = self._transient_upload_dto(
-            draft_id=payload.draft_id,
-            name=payload.name,
-            description=payload.description,
-            columns=list(payload.columns),
-            filter_code=payload.filter_code,
-            assumptions=list(payload.assumptions),
-            errors=list(payload.frontend_errors),
-        )
-
-        if payload.frontend_errors:
-            return self._upload_blocked_result(
-                explorer=transient,
-                code="EXPLORER_TEMPLATE_INVALID",
-                errors=list(payload.frontend_errors),
-            )
-
-        try:
-            row = self.explorer_repository.upload_explorer(
-                {
-                    "explorer_name": payload.name,
-                    "explorer_description": (
-                        payload.description
-                    ),
-                    "explorer_code_body": (
-                        payload.filter_code
-                    ),
-                    "col_definitions": [
-                        column.model_dump(
-                            mode="json"
-                        )
-                        for column in payload.columns
-                    ],
-                    "assumptions": list(
-                        payload.assumptions
-                    ),
-                }
-            )
-            explorer = self._row_to_explorer_dto(
-                row,
-                source="upload",
-                can_run_in_metastock=True,
-                can_repair=False,
-                validation_passed=True,
-                validation_errors=[],
-            )
-            output = UploadExplorerOutput(
-                explorer=explorer
-            )
-            return ToolResult(
-                tool_name="upload_explorer",
-                ok=True,
-                status=ToolStatus.SUCCESS,
-                message=(
-                    "Explorer uploaded and stored."
-                ),
-                data=output.model_dump(mode="json"),
-                display=self._explorer_display(
-                    title="Uploaded Explorer",
-                    explorer=explorer,
-                ),
-            )
-        except Exception as exc:
-            validation_errors = getattr(
-                exc,
-                "errors",
-                None,
-            )
-            if not isinstance(
-                validation_errors,
-                list,
-            ):
-                validation_errors = [str(exc)]
-
-            transient = self._transient_upload_dto(
-                draft_id=payload.draft_id,
-                name=payload.name,
-                description=payload.description,
-                columns=list(payload.columns),
-                filter_code=payload.filter_code,
-                assumptions=list(payload.assumptions),
-                errors=[
-                    str(item)
-                    for item in validation_errors
-                ],
-            )
-            return self._upload_blocked_result(
-                explorer=transient,
-                code=type(exc).__name__,
-                errors=[
-                    str(item)
-                    for item in validation_errors
-                ],
             )
 
     def repair_explorer(self, payload: RepairExplorerInput) -> ToolResult:
@@ -436,88 +257,6 @@ class ExplorerToolService:
                 tool_name="get_rag_log",
                 exc=exc,
             )
-
-    def _transient_upload_dto(
-        self,
-        *,
-        draft_id: str,
-        name: str,
-        description: str,
-        columns: list[ExplorerColumnDTO],
-        filter_code: str,
-        assumptions: list[str],
-        errors: list[str],
-    ) -> ExplorerDTO:
-        return ExplorerDTO(
-            explorer_id=(
-                str(draft_id).strip()
-                or f"transient:{uuid4()}"
-            ),
-            name=str(name or ""),
-            description=str(description or ""),
-            filter_code=str(filter_code or ""),
-            columns=columns or [
-                ExplorerColumnDTO(
-                    col_letter="A",
-                    col_code="",
-                )
-            ],
-            validation=ValidationDTO(
-                passed=False,
-                errors=[
-                    str(item)
-                    for item in errors
-                ],
-                warnings=[],
-            ),
-            can_run_in_metastock=False,
-            can_repair=False,
-            source="user-upload",
-            manual_edit_version=0,
-            is_transient=True,
-        )
-
-    def _upload_blocked_result(
-        self,
-        *,
-        explorer: ExplorerDTO,
-        code: str,
-        errors: list[str],
-    ) -> ToolResult:
-        output = UploadExplorerOutput(
-            explorer=explorer
-        )
-        markdown = (
-            "\n".join(
-                f"- {item}"
-                for item in errors
-            )
-            or "- Correct the Explorer fields."
-        )
-        return ToolResult(
-            tool_name="upload_explorer",
-            ok=False,
-            status=ToolStatus.BLOCKED,
-            message=(
-                "Explorer upload was not stored."
-            ),
-            data=output.model_dump(mode="json"),
-            error=ToolError(
-                code=code,
-                message=(
-                    "Correct the Explorer card and "
-                    "upload it again."
-                ),
-                details={
-                    "validation_errors": errors,
-                },
-            ),
-            display=ToolDisplay(
-                title="Explorer Upload Needs Changes",
-                markdown=markdown,
-                severity="warning",
-            ),
-        )
 
     def _build_automator_request(
         self,
@@ -992,11 +731,6 @@ class ExplorerToolService:
             source=source,
             service_log_id=final_service_log_id,
             service_log_created_at=service_log_created_at,
-            manual_edit_version=int(
-                row.get("manual_edit_version")
-                or 0
-            ),
-            is_transient=False,
         )
 
     def _parse_columns(self, value: Any) -> list[ExplorerColumnDTO]:
