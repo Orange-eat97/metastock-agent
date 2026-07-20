@@ -1692,7 +1692,7 @@ class ChatArea(QFrame):
         self._message_layout = QVBoxLayout(self._message_host)
         self._message_layout.setContentsMargins(14, 14, 14, 14)
         self._message_layout.setSpacing(14)
-        self._message_layout.addStretch()
+        self._message_layout.insertStretch(0)
         self._scroll.setWidget(self._message_host)
         self._scroll.verticalScrollBar().rangeChanged.connect(
             self._on_scroll_range_changed
@@ -1804,11 +1804,12 @@ class ChatArea(QFrame):
     def clear_messages(self) -> None:
         self._message_bubbles.clear()
         while self._message_layout.count() > 1:
-            item = self._message_layout.takeAt(0)
+            item = self._message_layout.takeAt(1)
             widget = item.widget()
             if widget is not None:
                 widget.deleteLater()
 
+   
     def add_message(
         self,
         message: ChatMessageViewModel,
@@ -1816,18 +1817,19 @@ class ChatArea(QFrame):
         scroll: bool = True,
     ) -> None:
         bubble = MessageBubble(message)
-        bubble.clarification_submitted.connect(self.clarification_chosen)
+        bubble.clarification_submitted.connect(
+            self.clarification_chosen
+        )
         bubble.explorer_save_requested.connect(
             self.explorer_save_requested
         )
-        self._message_layout.insertWidget(
-            self._message_layout.count() - 1,
-            bubble,
-        )
+
+        self._message_layout.addWidget(bubble)
         self._message_bubbles.append(bubble)
+
         if scroll:
             self.request_scroll_to_bottom()
-
+   
     def scroll_to_bottom_deferred(self) -> None:
         self.request_scroll_to_bottom()
 

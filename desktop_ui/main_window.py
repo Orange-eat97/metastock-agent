@@ -214,14 +214,10 @@ class MainWindow(QMainWindow):
                 )
             )
             self._start_turn_payload(
-                display_text=(
-                    "Upload Explorer: "
-                    + (
-                        patch.name
-                        or "Untitled Explorer"
-                    )
-                ),
+                display_text="",
                 backend_text=backend_text,
+                show_user_message=False,
+                progress_message="Uploading Explorer…",
             )
             return
 
@@ -396,22 +392,35 @@ class MainWindow(QMainWindow):
         *,
         display_text: str,
         backend_text: str,
+        show_user_message: bool = True,
+        progress_message: str = "Processing your request…",
     ) -> None:
-        if self._turn_thread is not None or not self._active_conversation_id:
+        if (
+            self._turn_thread is not None
+            or not self._active_conversation_id
+        ):
             return
 
-        conversation_id = self._active_conversation_id
-        self.chat.add_message(
-            ChatMessageViewModel(
-                role="user",
-                text=display_text,
-                created_at="Now",
-            )
+        conversation_id = (
+            self._active_conversation_id
         )
+
+        if show_user_message:
+            self.chat.add_message(
+                ChatMessageViewModel(
+                    role="user",
+                    text=display_text,
+                    created_at="Now",
+                )
+            )
+
         self.chat.set_running(True)
         self.sidebar.set_running(True)
         self.chat.status_bar.set_progress(
-            TurnProgress("processing", "Processing your request…")
+            TurnProgress(
+                "processing",
+                progress_message,
+            )
         )
 
         worker = TurnWorker(
@@ -419,13 +428,15 @@ class MainWindow(QMainWindow):
             conversation_id,
             backend_text,
         )
-        worker.progress.connect(self._on_turn_progress)
+        worker.progress.connect(
+            self._on_turn_progress
+        )
         self._start_background_worker(
             worker,
             self._on_turn_completed,
             self._on_turn_failed,
         )
-
+   
     def _on_turn_progress(self, progress: TurnProgress) -> None:
         self.chat.status_bar.set_progress(progress)
 
