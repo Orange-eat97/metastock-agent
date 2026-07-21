@@ -19,6 +19,9 @@ from compartments.result_scraper import (
 
 from ui_interacter.ui_core import log
 from ui_interacter.ui_actions import UiActions
+from ui_interacter.calibration_runtime import (
+    load_coordinate_mapper_from_env,
+)
 from ui_interacter.explore_selectors import ExploreSelectors
 
 from compartments.metastock_app import MetaStockApp
@@ -69,6 +72,7 @@ def build_shared_components():
         click_settle_delay=0.03,
         text_settle_delay=0.08,
         key_delay=0.01,
+        coordinate_mapper=load_coordinate_mapper_from_env(),
     )
 
     selectors = ExploreSelectors()

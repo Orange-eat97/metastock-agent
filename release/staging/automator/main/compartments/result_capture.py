@@ -23,7 +23,7 @@ from ui_interacter.ui_actions import UiActions
 from ui_interacter.ui_core import log, normalize_text, safe_descendants
 
 
-COPY_BUTTON_AUTOMATION_ID = "BarButtonItemLinkCopyList"
+COPY_BUTTON_AUTOMATION_ID_SUFFIX = "CopyList"
 
 INSTRUMENT_HEADER_NAMES = {
     "instrument",
@@ -643,13 +643,16 @@ class ClipboardResultVerifier:
                 )
 
                 if (
-                    automation_id
-                    == COPY_BUTTON_AUTOMATION_ID
+                    automation_id.endswith(
+                        COPY_BUTTON_AUTOMATION_ID_SUFFIX
+                    )
+                    and name.casefold() == "copy"
                 ):
                     log(
                         "Found MetaStock Copy button by "
-                        f"AutomationId="
-                        f"{COPY_BUTTON_AUTOMATION_ID!r}."
+                        f"AutomationId suffix "
+                        f"{COPY_BUTTON_AUTOMATION_ID_SUFFIX!r}: "
+                        f"{automation_id!r}."
                     )
                     return button
 
@@ -678,8 +681,9 @@ class ClipboardResultVerifier:
 
         raise RuntimeError(
             "Could not find the MetaStock Copy button. "
-            f"Expected AutomationId "
-            f"{COPY_BUTTON_AUTOMATION_ID!r}."
+            "Expected a Button named 'Copy' whose "
+            "AutomationId ends with "
+            f"{COPY_BUTTON_AUTOMATION_ID_SUFFIX!r}."
         )
 
     # ========================================================
