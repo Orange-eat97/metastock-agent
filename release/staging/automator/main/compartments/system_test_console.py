@@ -69,6 +69,8 @@ class SystemTestConsole:
                 x,
                 y,
                 "SystemTest tab fallback",
+                main=main,
+                calibration_point_name="system_test_tab",
             )
 
         log("Waiting for SystemTest Console to load...")
@@ -129,6 +131,8 @@ class SystemTestConsole:
                 x,
                 y,
                 "Start System Test fallback",
+                main=main,
+                calibration_point_name="start_system_test",
             )
             return
 

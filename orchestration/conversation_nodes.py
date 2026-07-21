@@ -257,6 +257,9 @@ class ComposeConversationResultNode:
             fallback_message=fallback_message,
         )
 
+        compact_result_message = (
+            _compact_result_message(results)
+        )
         compact_explorer_message = (
             _compact_explorer_message(results)
         )
@@ -266,7 +269,8 @@ class ComposeConversationResultNode:
 
         return {
             "composed_response": (
-                compact_explorer_message
+                compact_result_message
+                or compact_explorer_message
                 or deterministic_message
                 or self._composer.compose(
                     request
@@ -346,6 +350,25 @@ def _deterministic_display_message(
         if result.tool_name not in protected_tools:
             continue
         return _assistant_message(result)
+    return None
+
+
+def _compact_result_message(
+    results: list[ToolResult],
+) -> str | None:
+    # The ResultInlineCard already renders the full captured table.
+    # Keep the accompanying assistant text short and non-duplicative.
+    for result in reversed(results):
+        if (
+            result.tool_name
+            == "read_metastock_explorer_results"
+            and result.ok
+        ):
+            return (
+                "Explorer results captured successfully. "
+                "See the results card below."
+            )
+
     return None
 
 
