@@ -72,6 +72,11 @@ _UUID_PATTERN = re.compile(
 )
 
 
+_USER_MESSAGE_BG = "#3b3b43"
+_USER_MESSAGE_SELECTION_BG = "#737b8c"
+_USER_MESSAGE_SELECTION_FG = "#ffffff"
+
+
 def _is_private_metadata_key(key: Any) -> bool:
     normalized = str(key).strip().casefold()
     return (
@@ -1573,10 +1578,31 @@ class MessageBubble(QWidget):
             show_text_menu
         )
         text.setFont(font(10))
+
+        if message.role == "user":
+            selection_palette = text.palette()
+            selection_palette.setColor(
+                QPalette.ColorRole.Highlight,
+                QColor(
+                    _USER_MESSAGE_SELECTION_BG
+                ),
+            )
+            selection_palette.setColor(
+                QPalette.ColorRole.HighlightedText,
+                QColor(
+                    _USER_MESSAGE_SELECTION_FG
+                ),
+            )
+            text.setPalette(
+                selection_palette
+            )
+
         text.setStyleSheet(
-            f"background:{PRIMARY if message.role == 'user' else MUTED};"
+            f"background:{_USER_MESSAGE_BG if message.role == 'user' else MUTED};"
             f"color:{PRIMARY_FG if message.role == 'user' else FG};"
             "border-radius:11px; padding:8px 10px;"
+            f"selection-background-color:{_USER_MESSAGE_SELECTION_BG};"
+            f"selection-color:{_USER_MESSAGE_SELECTION_FG};"
         )
         text.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         column_layout.addWidget(text)

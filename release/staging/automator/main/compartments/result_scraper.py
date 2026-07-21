@@ -1,13 +1,13 @@
-# result_scraper.py
-
 from __future__ import annotations
 
-from asyncio import timeout
+import csv
+import io
 import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+import pyperclip
 from pywinauto.base_wrapper import BaseWrapper
 from pywinauto.keyboard import send_keys
 
@@ -18,60 +18,17 @@ from ui_interacter.ui_core import (
 )
 
 
-# ============================================================
-# UIA NAME PATTERNS
-# ============================================================
-
 RESULTS_TAB_RE = re.compile(
     r"^Results\s*\(\s*(?P<count>\d+)\s*\)$",
     re.IGNORECASE,
 )
 
-CELL_NAME_RE = re.compile(
-    r"^Row\s+(?P<row>\d+),\s*"
-    r"Column\s+(?P<column>\d+):\s*"
-    r"(?P<value>.*)$",
-    re.IGNORECASE,
-)
-
-COLUMN_VALUE_HEADER_RE = re.compile(
-    r"^ColumnValues\[(?P<index>\d+)\]$",
-    re.IGNORECASE,
-)
-
-
-# ============================================================
-# RESULT MODELS
-# ============================================================
+RESULTS_GRID_AUTOMATION_ID = "ResultsGridControl"
 
 
 @dataclass(frozen=True)
 class ExplorationResultRow:
-    """
-    One scraped MetaStock result row.
-
-    values_by_column:
-        Raw UIA column index -> displayed value.
-
-    values_by_name:
-        Human-readable field name -> displayed value.
-
-    Example:
-
-        values_by_column = {
-            0: "A SONIC AEROSPACE ORD",
-            1: "0.5500",
-            2: "0.5300",
-            11: "D_ASON.SI",
-        }
-
-        values_by_name = {
-            "instrument_name": "A SONIC AEROSPACE ORD",
-            "column_A": "0.5500",
-            "column_B": "0.5300",
-            "symbol": "D_ASON.SI",
-        }
-    """
+    """One scraped MetaStock result row."""
 
     row_index: int
     values_by_column: dict[int, str]
@@ -80,9 +37,7 @@ class ExplorationResultRow:
 
 @dataclass(frozen=True)
 class ExplorationResultSet:
-    """
-    Complete result returned by the UIA scraper.
-    """
+    """Complete result returned by the scraper."""
 
     expected_count: int
     headers: dict[int, str]
@@ -99,47 +54,26 @@ class ExplorationResultSet:
         return self.expected_count > 0
 
     def to_records(self) -> list[dict[str, Any]]:
-        """
-        Convert rows into a JSON-serializable representation.
-        """
         records: list[dict[str, Any]] = []
 
         for row in self.rows:
             record: dict[str, Any] = {
                 "row_index": row.row_index,
             }
-
             record.update(row.values_by_name)
             records.append(record)
 
         return records
 
 
-# ============================================================
-# RESULT SCRAPER
-# ============================================================
-
-
 class ExplorationResultScraper:
     """
-    Scrape MetaStock's virtualized WPF result DataGrid.
+    Scrape MetaStock's result table through native grid copying.
 
-    MetaStock does not expose every result row at once. Only rows
-    currently materialized in the visible DataGrid viewport appear
-    in the UIA tree.
-
-    The scraper therefore:
-
-    1. waits for Results (N) to be published through UIA;
-    2. waits for the lower result DataGrid;
-    3. moves to the first result row;
-    4. collects currently materialized cells;
-    5. pages through the grid;
-    6. merges cells by row and column index;
-    7. verifies that every expected row was collected.
-
-    Fixed long delays are avoided. State is polled at short
-    intervals and each wait returns as soon as the UI is ready.
+    The tested MetaStock/DevExpress build exposes the lower result
+    grid as ``ResultsGridControl`` but does not publish its visible
+    rows as UIA descendants. The full table is nevertheless available
+    through Ctrl+A followed by Ctrl+C.
     """
 
     def __init__(
@@ -149,32 +83,37 @@ class ExplorationResultScraper:
         result_ready_timeout: float = 3.0,
         page_change_timeout: float = 0.5,
         poll_interval: float = 0.04,
+        clipboard_timeout: float = 5.0,
+        preserve_existing_clipboard: bool = True,
     ) -> None:
-        # Backward compatibility:
-        # older composition code may still pass page_load_delay=0.35.
-        # Cap it so an old value does not reintroduce long waits.
+        # Preserve the old constructor contract. The paging arguments
+        # remain accepted because existing composition code passes them.
         self.event_dispatch_delay = min(
-            max(page_load_delay, 0.01),
+            max(float(page_load_delay), 0.01),
             0.05,
         )
-
         self.max_stale_pages = max_stale_pages
-        self.result_ready_timeout = result_ready_timeout
+        self.result_ready_timeout = max(
+            float(result_ready_timeout),
+            1.0,
+        )
         self.page_change_timeout = page_change_timeout
-        self.poll_interval = poll_interval
-
-    # ========================================================
-    # PUBLIC ENTRY POINT
-    # ========================================================
+        self.poll_interval = max(
+            float(poll_interval),
+            0.02,
+        )
+        self.clipboard_timeout = max(
+            float(clipboard_timeout),
+            1.0,
+        )
+        self.preserve_existing_clipboard = bool(
+            preserve_existing_clipboard
+        )
 
     def scrape(
         self,
         execution_window: BaseWrapper,
     ) -> ExplorationResultSet:
-        """
-        Scrape all rows from the completed Exploration Execution
-        window.
-        """
         expected_count = self._wait_for_result_count(
             execution_window=execution_window,
             timeout=self.result_ready_timeout,
@@ -200,131 +139,15 @@ class ExplorationResultScraper:
             poll_interval=self.poll_interval,
         )
 
-        headers = self._read_headers(grid)
-
-        log(f"Result headers: {headers}")
-
-        # row index -> column index -> displayed value
-        collected: dict[int, dict[int, str]] = {}
-
-        self._focus_grid(grid)
-        self._move_to_first_row(grid)
-
-        expected_row_indices = set(
-            range(expected_count)
+        headers, rows = self._copy_full_results_table(
+            execution_window=execution_window,
+            grid=grid,
+            expected_count=expected_count,
         )
 
-        stale_pages = 0
-
-        # Generous safety bound. The normal Page Down path moves one
-        # viewport at a time. The fallback path may move one row at a time.
-        maximum_iterations = max(
-            expected_count * 3,
-            150,
-        )
-
-        for page_number in range(maximum_iterations):
-            self._collect_materialized_cells(
-                grid=grid,
-                collected=collected,
-            )
-
-            collected_indices = set(collected)
-
-            cell_count = sum(
-                len(values)
-                for values in collected.values()
-            )
-
-            visible_rows = self._visible_row_indices(
-                grid
-            )
-
-            if visible_rows:
-                visible_range = (
-                    f"{min(visible_rows)}-"
-                    f"{max(visible_rows)}"
-                )
-            else:
-                visible_range = "<none>"
-
-            log(
-                f"Result scrape page {page_number + 1}: "
-                f"rows={len(collected_indices)}/"
-                f"{expected_count}, "
-                f"cells={cell_count}, "
-                f"visible={visible_range}"
-            )
-
-            if expected_row_indices.issubset(
-                collected_indices
-            ):
-                break
-
-            moved = self._page_down(grid)
-
-            if moved:
-                stale_pages = 0
-                continue
-
-            stale_pages += 1
-
-            log(
-                "Result grid did not move. "
-                f"Unchanged attempts="
-                f"{stale_pages}/{self.max_stale_pages}"
-            )
-
-            if stale_pages >= self.max_stale_pages:
-                log(
-                    "Result paging stopped because neither "
-                    "Page Down nor the one-row fallback moved "
-                    "the result grid."
-                )
-                break
-
-        # Final Ctrl+End attempt for the last partially visible
-        # group of rows.
-        if not expected_row_indices.issubset(
-            set(collected)
-        ):
-            before_rows = self._visible_row_indices(
-                grid
-            )
-
-            self._focus_grid(grid)
-
-            send_keys(
-                "^{END}",
-                pause=0.01,
-            )
-
-            self._wait_for_grid_change(
-                grid=grid,
-                previous_rows=before_rows,
-                timeout=self.page_change_timeout,
-            )
-
-            self._collect_materialized_cells(
-                grid=grid,
-                collected=collected,
-            )
-
-        missing_rows = sorted(
-            expected_row_indices - set(collected)
-        )
-
-        if missing_rows:
-            raise RuntimeError(
-                "Could not scrape every MetaStock result row. "
-                f"Expected={expected_count}, "
-                f"collected={len(collected)}, "
-                f"missing_rows={missing_rows}"
-            )
-
-        rows = self._build_rows(
-            collected=collected,
-            headers=headers,
+        log(
+            "MetaStock result table copied successfully: "
+            f"headers={headers}, rows={len(rows)}"
         )
 
         return ExplorationResultSet(
@@ -333,10 +156,6 @@ class ExplorationResultScraper:
             rows=rows,
         )
 
-    # ========================================================
-    # RESULT SURFACE DISCOVERY
-    # ========================================================
-
     def _wait_for_result_count(
         self,
         *,
@@ -344,59 +163,23 @@ class ExplorationResultScraper:
         timeout: float,
         poll_interval: float,
     ) -> int:
-        """
-        Wait until MetaStock publishes a UIA name such as:
-
-            Results (77)
-
-        WPF can paint this caption before it publishes the
-        corresponding UIA element, so a single descendant scan
-        is not reliable.
-        """
         deadline = time.monotonic() + timeout
         last_error: Exception | None = None
 
         while time.monotonic() < deadline:
             try:
-                # Fast path: actual tab items.
-                tab_items = (
+                for controls in (
                     execution_window.descendants(
                         control_type="TabItem"
+                    ),
+                    execution_window.descendants(),
+                ):
+                    count = self._read_result_count_from_controls(
+                        controls
                     )
-                )
 
-                count = (
-                    self._read_result_count_from_controls(
-                        tab_items
-                    )
-                )
-
-                if count is not None:
-                    log(
-                        "Results tab published through UIA: "
-                        f"Results ({count})"
-                    )
-                    return count
-
-                # WPF fallback:
-                # during a tree refresh, the caption may briefly
-                # appear under a different control type.
-                all_controls = (
-                    execution_window.descendants()
-                )
-
-                count = (
-                    self._read_result_count_from_controls(
-                        all_controls
-                    )
-                )
-
-                if count is not None:
-                    log(
-                        "Results count found through UIA "
-                        f"fallback: Results ({count})"
-                    )
-                    return count
+                    if count is not None:
+                        return count
 
             except Exception as exc:
                 last_error = exc
@@ -422,14 +205,15 @@ class ExplorationResultScraper:
             for text in self._control_text_candidates(
                 control
             ):
-                match = RESULTS_TAB_RE.fullmatch(
-                    text
-                )
+                match = RESULTS_TAB_RE.fullmatch(text)
 
                 if match is not None:
-                    return int(
-                        match.group("count")
+                    count = int(match.group("count"))
+                    log(
+                        "Results count found through UIA: "
+                        f"Results ({count})"
                     )
+                    return count
 
         return None
 
@@ -441,158 +225,59 @@ class ExplorationResultScraper:
         timeout: float,
         poll_interval: float,
     ) -> BaseWrapper:
-        """
-        Locate the lower Explorer result grid.
-
-        The Exploration Execution window contains more than one
-        DataGrid. The result grid is identified by headers such as:
-
-            InstrumentName
-            ColumnValues[0]
-            ColumnValues[1]
-            Symbol
-        """
         deadline = time.monotonic() + timeout
         last_error: Exception | None = None
 
         while time.monotonic() < deadline:
             try:
-                controls = (
-                    execution_window.descendants()
-                )
+                fallback_candidates: list[BaseWrapper] = []
 
-                candidates: list[
-                    tuple[int, int, BaseWrapper]
-                ] = []
-
-                for control in controls:
+                for control in execution_window.descendants():
                     try:
                         info = control.element_info
+                        automation_id = normalize_text(
+                            info.automation_id or ""
+                        )
+
+                        if (
+                            automation_id
+                            == RESULTS_GRID_AUTOMATION_ID
+                        ):
+                            log(
+                                "Found MetaStock result DataGrid by "
+                                f"AutomationId="
+                                f"{RESULTS_GRID_AUTOMATION_ID!r}; "
+                                f"expected_rows={expected_count}."
+                            )
+                            return control
 
                         control_type = normalize_text(
                             info.control_type or ""
                         )
-
                         class_name = normalize_text(
                             info.class_name or ""
                         )
-
                         combined = (
-                            f"{control_type} "
-                            f"{class_name}"
+                            f"{control_type} {class_name}"
                         ).casefold()
 
                         if (
-                            control_type != "DataGrid"
-                            and "datagrid" not in combined
+                            control_type == "DataGrid"
+                            or "datagrid" in combined
                         ):
-                            continue
-
-                        try:
-                            descendants = (
-                                control.descendants()
+                            fallback_candidates.append(
+                                control
                             )
-                        except Exception:
-                            descendants = []
-
-                        header_score = 0
-                        visible_cell_count = 0
-
-                        for descendant in descendants:
-                            parsed = self._extract_cell(
-                                descendant
-                            )
-
-                            if parsed is not None:
-                                visible_cell_count += 1
-
-                            try:
-                                descendant_info = (
-                                    descendant.element_info
-                                )
-
-                                descendant_type = (
-                                    normalize_text(
-                                        descendant_info
-                                        .control_type
-                                        or ""
-                                    )
-                                )
-
-                                descendant_name = (
-                                    normalize_text(
-                                        descendant_info.name
-                                        or ""
-                                    )
-                                )
-
-                                if (
-                                    descendant_type
-                                    != "HeaderItem"
-                                ):
-                                    continue
-
-                                if (
-                                    descendant_name
-                                    == "InstrumentName"
-                                ):
-                                    header_score += 100
-
-                                elif COLUMN_VALUE_HEADER_RE.fullmatch(
-                                    descendant_name
-                                ):
-                                    header_score += 20
-
-                                elif (
-                                    descendant_name
-                                    == "Symbol"
-                                ):
-                                    header_score += 20
-
-                            except Exception:
-                                continue
-
-                        candidates.append(
-                            (
-                                header_score,
-                                visible_cell_count,
-                                control,
-                            )
-                        )
 
                     except Exception:
                         continue
 
-                candidates.sort(
-                    key=lambda item: (
-                        item[0],
-                        item[1],
-                    ),
-                    reverse=True,
-                )
-
-                if candidates:
-                    (
-                        header_score,
-                        visible_cell_count,
-                        result_grid,
-                    ) = candidates[0]
-
-                    # InstrumentName provides a strong distinction
-                    # from the upper execution summary grid.
-                    if (
-                        header_score >= 100
-                        and visible_cell_count > 0
-                    ):
-                        log(
-                            "Result DataGrid ready: "
-                            f"header_score={header_score}, "
-                            f"visible_cells="
-                            f"{visible_cell_count}, "
-                            f"expected_rows={expected_count}"
-                        )
-
-                        return result_grid
+                if len(fallback_candidates) == 1:
+                    log(
+                        "Found one MetaStock DataGrid through "
+                        "control-type fallback."
+                    )
+                    return fallback_candidates[0]
 
             except Exception as exc:
                 last_error = exc
@@ -605,598 +290,402 @@ class ExplorationResultScraper:
 
         raise RuntimeError(
             "Results (N) was available, but the lower "
-            "MetaStock result DataGrid did not become ready "
+            "MetaStock result DataGrid could not be found "
             f"within {timeout:.1f} seconds. "
-            f"Expected rows={expected_count}. "
+            f"Expected AutomationId="
+            f"{RESULTS_GRID_AUTOMATION_ID!r}, "
+            f"expected_rows={expected_count}. "
             f"Last UIA error: {last_error}"
         )
 
-    # ========================================================
-    # HEADER READING
-    # ========================================================
-
-    def _read_headers(
+    def _copy_full_results_table(
         self,
+        *,
+        execution_window: BaseWrapper,
         grid: BaseWrapper,
-    ) -> dict[int, str]:
-        """
-        Observed MetaStock column mapping:
+        expected_count: int,
+    ) -> tuple[
+        dict[int, str],
+        list[ExplorationResultRow],
+    ]:
+        previous_clipboard = self._read_clipboard_safely()
+        deadline = time.monotonic() + self.clipboard_timeout
+        last_error: Exception | None = None
+        last_row_count: int | None = None
+        attempt = 0
 
-            UIA column 0
-                InstrumentName
+        try:
+            while time.monotonic() < deadline:
+                attempt += 1
+                sentinel = (
+                    "__METASTOCK_RESULT_COPY_PENDING_"
+                    f"{time.time_ns()}__"
+                )
 
-            UIA column 1
-                ColumnValues[0] / Explorer Column A
+                try:
+                    pyperclip.copy(sentinel)
 
-            UIA column 2
-                ColumnValues[1] / Explorer Column B
+                    self._activate_results_grid(
+                        execution_window=execution_window,
+                        grid=grid,
+                    )
 
-            ...
+                    send_keys("^a", pause=0.05)
+                    time.sleep(self.event_dispatch_delay)
+                    send_keys("^c", pause=0.05)
 
-            UIA column 10
-                ColumnValues[9] / Explorer Column J
+                    clipboard_text = (
+                        self._wait_for_copied_table_text(
+                            sentinel=sentinel,
+                            deadline=deadline,
+                        )
+                    )
 
-            final UIA column
-                Symbol
-        """
-        headers: dict[int, str] = {}
+                    headers, rows = self._parse_copied_table(
+                        clipboard_text
+                    )
+                    last_row_count = len(rows)
 
-        maximum_explorer_column_index = -1
-        symbol_header_found = False
+                    if last_row_count == expected_count:
+                        log(
+                            "Copied full MetaStock result table "
+                            f"on attempt {attempt}: "
+                            f"{last_row_count} rows."
+                        )
+                        return headers, rows
+
+                    last_error = RuntimeError(
+                        "Copied result row count does not match "
+                        "Results (N). "
+                        f"expected={expected_count}, "
+                        f"copied={last_row_count}"
+                    )
+
+                except Exception as exc:
+                    last_error = exc
+
+                time.sleep(self.poll_interval)
+
+        finally:
+            if self.preserve_existing_clipboard:
+                self._restore_clipboard_safely(
+                    previous_clipboard
+                )
+
+        raise RuntimeError(
+            "Could not copy the complete MetaStock result table "
+            "with Ctrl+A / Ctrl+C within "
+            f"{self.clipboard_timeout:.1f} seconds. "
+            f"Expected rows={expected_count}, "
+            f"last copied rows={last_row_count}, "
+            f"last error={last_error}"
+        )
+
+    def _activate_results_grid(
+        self,
+        *,
+        execution_window: BaseWrapper,
+        grid: BaseWrapper,
+    ) -> None:
+        try:
+            execution_window.set_focus()
+        except Exception:
+            pass
+
+        data_panel: BaseWrapper | None = None
 
         for control in safe_descendants(grid):
             try:
                 info = control.element_info
-
-                control_type = normalize_text(
-                    info.control_type or ""
+                automation_id = normalize_text(
+                    info.automation_id or ""
                 )
+                name = normalize_text(info.name or "")
 
-                if control_type != "HeaderItem":
-                    continue
-
-                technical_name = normalize_text(
-                    info.name or ""
-                )
-
-                if technical_name == "InstrumentName":
-                    headers[0] = "instrument_name"
-                    continue
-
-                column_match = (
-                    COLUMN_VALUE_HEADER_RE.fullmatch(
-                        technical_name
-                    )
-                )
-
-                if column_match is not None:
-                    zero_based_index = int(
-                        column_match.group("index")
-                    )
-
-                    # UIA column 0 is InstrumentName, so Explorer
-                    # column A begins at UIA column 1.
-                    uia_column_index = (
-                        zero_based_index + 1
-                    )
-
-                    display_name = (
-                        self._find_header_display_name(
-                            control
-                        )
-                    )
-
-                    if not display_name:
-                        display_name = chr(
-                            ord("A")
-                            + zero_based_index
-                        )
-
-                    headers[uia_column_index] = (
-                        f"column_{display_name}"
-                    )
-
-                    maximum_explorer_column_index = max(
-                        maximum_explorer_column_index,
-                        zero_based_index,
-                    )
-
-                    continue
-
-                if technical_name == "Symbol":
-                    symbol_header_found = True
-
-            except Exception:
-                continue
-
-        if 0 not in headers:
-            headers[0] = "instrument_name"
-
-        if symbol_header_found:
-            # Instrument occupies column 0.
-            # Explorer A starts at column 1.
-            # Symbol follows the last ColumnValues[n] field.
-            symbol_column_index = (
-                maximum_explorer_column_index + 2
-            )
-
-            headers[symbol_column_index] = "symbol"
-
-        return headers
-
-    def _find_header_display_name(
-        self,
-        header: BaseWrapper,
-    ) -> Optional[str]:
-        """
-        A technical header such as ColumnValues[0] may contain
-        a Text child named A.
-        """
-        for child in safe_descendants(header):
-            try:
-                info = child.element_info
-
-                control_type = normalize_text(
-                    info.control_type or ""
-                )
-
-                if control_type != "Text":
-                    continue
-
-                for value in (
-                    self._control_text_candidates(
-                        child
-                    )
+                if (
+                    automation_id == "dataPresenter"
+                    or name == "DataPanel"
                 ):
-                    if value:
-                        return value
+                    data_panel = control
+                    break
 
             except Exception:
                 continue
 
-        return None
-
-    # ========================================================
-    # CELL COLLECTION
-    # ========================================================
-
-    def _collect_materialized_cells(
-        self,
-        *,
-        grid: BaseWrapper,
-        collected: dict[int, dict[int, str]],
-    ) -> None:
-        """
-        Add every currently materialized cell to the collected
-        row/column map.
-        """
-        try:
-            descendants = grid.descendants()
-        except Exception:
-            descendants = []
-
-        for control in descendants:
-            parsed = self._extract_cell(
-                control
-            )
-
-            if parsed is None:
-                continue
-
-            row_index, column_index, value = parsed
-
-            collected.setdefault(
-                row_index,
-                {},
-            )
-
-            collected[row_index][column_index] = value
-
-    def _extract_cell(
-        self,
-        control: BaseWrapper,
-    ) -> Optional[tuple[int, int, str]]:
-        """
-        Parse UIA names such as:
-
-            Row 40, Column 0: SOUTHERN ARCHIPELAGO ORD
-            Row 40, Column 1: 0.5500
-            Row 40, Column 11: D_SOUE.SI
-        """
-        for candidate in (
-            self._control_text_candidates(control)
-        ):
-            match = CELL_NAME_RE.fullmatch(
-                candidate
-            )
-
-            if match is None:
-                continue
-
-            return (
-                int(match.group("row")),
-                int(match.group("column")),
-                match.group("value").strip(),
-            )
-
-        return None
-
-    # ========================================================
-    # KEYBOARD FOCUS AND VIRTUALIZED PAGING
-    # ========================================================
-
-    def _focus_grid(
-        self,
-        grid: BaseWrapper,
-    ) -> None:
-        """
-        Prefer focusing a materialized result cell.
-
-        MetaStock result cells are keyboard-focusable, while the
-        WPF DataGrid wrapper does not always retain keyboard focus.
-        """
-        cells: list[
-            tuple[int, int, BaseWrapper]
-        ] = []
+        target = data_panel or grid
 
         try:
-            descendants = grid.descendants()
-        except Exception:
-            descendants = []
+            rectangle = target.rectangle()
+            width = max(int(rectangle.width()), 1)
+            height = max(int(rectangle.height()), 1)
 
-        for control in descendants:
-            parsed = self._extract_cell(
-                control
+            x = max(1, min(50, width - 2))
+            y = max(1, min(20, height - 2))
+
+            target.click_input(coords=(x, y))
+            time.sleep(
+                max(self.event_dispatch_delay, 0.05)
             )
+            return
 
-            if parsed is None:
-                continue
-
-            row_index, column_index, _ = parsed
-
-            cells.append(
-                (
-                    row_index,
-                    column_index,
-                    control,
-                )
-            )
-
-        cells.sort(
-            key=lambda item: (
-                item[0],
-                item[1],
-            )
-        )
-
-        for _, _, cell in cells:
+        except Exception as click_error:
             try:
-                cell.set_focus()
-
+                grid.set_focus()
                 time.sleep(
-                    self.event_dispatch_delay
+                    max(self.event_dispatch_delay, 0.05)
                 )
-
                 return
 
-            except Exception:
-                continue
+            except Exception as focus_error:
+                raise RuntimeError(
+                    "Could not activate the MetaStock result "
+                    "grid. "
+                    f"click_error={click_error}; "
+                    f"focus_error={focus_error}"
+                ) from focus_error
 
-        try:
-            grid.set_focus()
-
-            time.sleep(
-                self.event_dispatch_delay
-            )
-
-            return
-
-        except Exception:
-            pass
-
-        try:
-            grid.click_input()
-
-            time.sleep(
-                self.event_dispatch_delay
-            )
-
-            return
-
-        except Exception as exc:
-            raise RuntimeError(
-                "Could not focus the MetaStock result grid "
-                "or a materialized result cell: "
-                f"{exc}"
-            ) from exc
-
-    def _move_to_first_row(
+    def _wait_for_copied_table_text(
         self,
-        grid: BaseWrapper,
-    ) -> None:
-        """
-        Move the virtualized result grid to row zero.
-        """
-        self._focus_grid(grid)
-
-        send_keys(
-            "^{HOME}",
-            pause=0.01,
-        )
-
-        deadline = (
-            time.monotonic()
-            + self.page_change_timeout
-        )
+        *,
+        sentinel: str,
+        deadline: float,
+    ) -> str:
+        last_error: Exception | None = None
 
         while time.monotonic() < deadline:
-            rows = self._visible_row_indices(
-                grid
-            )
-
-            if rows and min(rows) == 0:
-                return
-
-            time.sleep(0.03)
-
-    def _page_down(
-        self,
-        grid: BaseWrapper,
-    ) -> bool:
-        """
-        Advance the virtualized result grid.
-
-        Important:
-        Do not call _focus_grid() before every Page Down. That method
-        focuses the first visible cell and resets keyboard navigation.
-
-        The existing keyboard focus is preserved for the normal path.
-        If Page Down fails, focus the bottom visible row and move down
-        one row to force WPF virtualization.
-        """
-        before_rows = self._visible_row_indices(
-            grid
-        )
-
-        if not before_rows:
-            return False
-
-        # Normal path: preserve the current focused cell.
-        send_keys(
-            "{PGDN}",
-            pause=0.01,
-        )
-
-        if self._wait_for_grid_change(
-            grid=grid,
-            previous_rows=before_rows,
-            timeout=self.page_change_timeout,
-        ):
-            return True
-
-        # Fallback:
-        # MetaStock occasionally ignores Page Down even though a result
-        # cell previously had keyboard focus. Focus the last visible row
-        # and press Down once to materialize the next row.
-        bottom_cell = self._find_bottom_visible_cell(
-            grid
-        )
-
-        if bottom_cell is None:
-            return False
-
-        try:
-            bottom_cell.set_focus()
-            time.sleep(self.event_dispatch_delay)
-        except Exception:
             try:
-                bottom_cell.click_input()
-                time.sleep(self.event_dispatch_delay)
-            except Exception:
-                return False
+                value = pyperclip.paste()
 
-        fallback_before_rows = (
-            self._visible_row_indices(grid)
+                if (
+                    isinstance(value, str)
+                    and value != sentinel
+                    and value.strip()
+                ):
+                    return value
+
+            except Exception as exc:
+                last_error = exc
+
+            time.sleep(self.poll_interval)
+
+        raise RuntimeError(
+            "Ctrl+C did not publish result-table text to the "
+            "clipboard. "
+            f"Last clipboard error: {last_error}"
         )
 
-        send_keys(
-            "{DOWN}",
-            pause=0.01,
-        )
-
-        return self._wait_for_grid_change(
-            grid=grid,
-            previous_rows=fallback_before_rows,
-            timeout=self.page_change_timeout,
-        )
-
-    def _find_bottom_visible_cell(
+    def _parse_copied_table(
         self,
-        grid: BaseWrapper,
-    ) -> Optional[BaseWrapper]:
-        """
-        Find a cell in the last currently materialized row.
-
-        Prefer column 0 because the instrument-name cell is known to
-        be keyboard-focusable.
-        """
-        cells: list[
-            tuple[int, int, BaseWrapper]
-        ] = []
-
-        try:
-            descendants = grid.descendants()
-        except Exception:
-            descendants = []
-
-        for control in descendants:
-            parsed = self._extract_cell(
-                control
-            )
-
-            if parsed is None:
-                continue
-
-            row_index, column_index, _ = parsed
-
-            cells.append(
-                (
-                    row_index,
-                    column_index,
-                    control,
-                )
-            )
-
-        if not cells:
-            return None
-
-        bottom_row_index = max(
-            row_index
-            for row_index, _, _ in cells
+        clipboard_text: str,
+    ) -> tuple[
+        dict[int, str],
+        list[ExplorationResultRow],
+    ]:
+        cleaned_text = (
+            clipboard_text
+            .replace("\x00", "")
+            .replace("\r\n", "\n")
+            .replace("\r", "\n")
+            .strip("\n")
         )
 
-        bottom_row_cells = [
-            (
-                column_index,
-                control,
+        if "\t" not in cleaned_text:
+            raise RuntimeError(
+                "MetaStock Ctrl+C did not return a "
+                "tab-separated result table. "
+                f"Clipboard preview={cleaned_text[:300]!r}"
             )
-            for row_index, column_index, control
-            in cells
-            if row_index == bottom_row_index
-        ]
 
-        # Prefer the instrument-name cell in column 0.
-        for column_index, control in bottom_row_cells:
-            if column_index == 0:
-                return control
-
-        bottom_row_cells.sort(
-            key=lambda item: item[0]
+        reader = csv.reader(
+            io.StringIO(cleaned_text),
+            delimiter="\t",
         )
+        raw_rows: list[list[str]] = []
 
-        return bottom_row_cells[0][1]
+        for raw_row in reader:
+            row = [cell.strip() for cell in raw_row]
 
-    def _visible_row_indices(
-        self,
-        grid: BaseWrapper,
-    ) -> set[int]:
-        """
-        Return the row indices currently materialized in UIA.
-        """
-        row_indices: set[int] = set()
+            while row and not row[-1]:
+                row.pop()
 
-        try:
-            descendants = grid.descendants()
-        except Exception:
-            return row_indices
+            if any(row):
+                raw_rows.append(row)
 
-        for control in descendants:
-            parsed = self._extract_cell(
-                control
+        if not raw_rows:
+            raise RuntimeError(
+                "MetaStock copied an empty result table."
             )
 
-            if parsed is None:
-                continue
+        raw_headers = raw_rows[0]
 
-            row_index, _, _ = parsed
-            row_indices.add(row_index)
-
-        return row_indices
-
-    def _wait_for_grid_change(
-        self,
-        *,
-        grid: BaseWrapper,
-        previous_rows: set[int],
-        timeout: float,
-    ) -> bool:
-        """
-        Return True as soon as WPF publishes a different visible row set.
-
-        Return False when the viewport does not change before timeout.
-        """
-        deadline = time.monotonic() + timeout
-
-        while time.monotonic() < deadline:
-            current_rows = (
-                self._visible_row_indices(grid)
+        if not raw_headers:
+            raise RuntimeError(
+                "MetaStock copied a result table without "
+                "headers."
             )
 
-            if (
-                current_rows
-                and current_rows != previous_rows
-            ):
-                return True
+        headers = {
+            column_index: self._normalize_copied_header(
+                header=header,
+                column_index=column_index,
+            )
+            for column_index, header
+            in enumerate(raw_headers)
+        }
 
-            time.sleep(0.03)
+        header_names = set(headers.values())
 
-        return False
-    
-    # ========================================================
-    # ROW CONSTRUCTION
-    # ========================================================
+        if (
+            "instrument_name" not in header_names
+            or "symbol" not in header_names
+        ):
+            raise RuntimeError(
+                "Copied table is not the MetaStock result "
+                "table because required headers are absent. "
+                f"Raw headers={raw_headers!r}; "
+                f"normalized headers={headers!r}"
+            )
 
-    def _build_rows(
-        self,
-        *,
-        collected: dict[int, dict[int, str]],
-        headers: dict[int, str],
-    ) -> list[ExplorationResultRow]:
         rows: list[ExplorationResultRow] = []
 
-        for row_index in sorted(collected):
-            values_by_column = dict(
-                sorted(
-                    collected[row_index].items()
-                )
-            )
+        for row_index, raw_row in enumerate(
+            raw_rows[1:]
+        ):
+            row = list(raw_row)
 
-            values_by_name: dict[str, str] = {}
-
-            for (
-                column_index,
-                value,
-            ) in values_by_column.items():
-                header = headers.get(
-                    column_index,
-                    f"column_index_{column_index}",
+            if len(row) < len(raw_headers):
+                row.extend(
+                    [""] * (
+                        len(raw_headers) - len(row)
+                    )
                 )
 
-                values_by_name[header] = value
+            if len(row) > len(raw_headers):
+                extra_values = row[len(raw_headers):]
+
+                if any(extra_values):
+                    raise RuntimeError(
+                        "A copied MetaStock result row has "
+                        "more values than the header row. "
+                        f"row_index={row_index}, "
+                        f"headers={raw_headers!r}, "
+                        f"row={raw_row!r}"
+                    )
+
+                row = row[:len(raw_headers)]
+
+            values_by_column = {
+                column_index: value
+                for column_index, value
+                in enumerate(row)
+            }
+            values_by_name = {
+                headers[column_index]: value
+                for column_index, value
+                in enumerate(row)
+            }
 
             rows.append(
                 ExplorationResultRow(
                     row_index=row_index,
-                    values_by_column=(
-                        values_by_column
-                    ),
+                    values_by_column=values_by_column,
                     values_by_name=values_by_name,
                 )
             )
 
-        return rows
+        return headers, rows
 
-    # ========================================================
-    # GENERAL HELPERS
-    # ========================================================
+    @staticmethod
+    def _normalize_copied_header(
+        *,
+        header: str,
+        column_index: int,
+    ) -> str:
+        normalized = re.sub(
+            r"[^a-z0-9]+",
+            "",
+            header.casefold(),
+        )
+
+        if normalized in {
+            "instrument",
+            "instrumentname",
+            "security",
+            "securityname",
+            "stock",
+            "stockname",
+        }:
+            return "instrument_name"
+
+        if normalized == "symbol":
+            return "symbol"
+
+        column_match = re.fullmatch(
+            r"(?:column)?([a-j])",
+            normalized,
+            re.IGNORECASE,
+        )
+
+        if column_match is not None:
+            return (
+                "column_"
+                + column_match.group(1).upper()
+            )
+
+        fallback = re.sub(
+            r"[^a-z0-9]+",
+            "_",
+            header.casefold(),
+        ).strip("_")
+
+        return fallback or f"column_{column_index}"
+
+    @staticmethod
+    def _read_clipboard_safely() -> str | None:
+        try:
+            value = pyperclip.paste()
+
+            if isinstance(value, str):
+                return value
+
+        except Exception:
+            pass
+
+        return None
+
+    @staticmethod
+    def _restore_clipboard_safely(
+        previous_value: str | None,
+    ) -> None:
+        if previous_value is None:
+            return
+
+        try:
+            pyperclip.copy(previous_value)
+        except Exception as exc:
+            log(
+                "Warning: could not restore the previous "
+                "clipboard contents after result scraping: "
+                f"{exc}"
+            )
 
     @staticmethod
     def _control_text_candidates(
         control: BaseWrapper,
     ) -> list[str]:
-        """
-        Return every useful accessible text representation for
-        a control.
-        """
-        values: list[str] = []
+        candidates: list[str] = []
 
         try:
-            name = normalize_text(
-                control.element_info.name or ""
-            )
+            info = control.element_info
 
-            if name:
-                values.append(name)
+            for value in (
+                info.name,
+                info.automation_id,
+            ):
+                normalized = normalize_text(value or "")
+
+                if normalized:
+                    candidates.append(normalized)
 
         except Exception:
             pass
@@ -1206,98 +695,40 @@ class ExplorationResultScraper:
                 control.window_text() or ""
             )
 
-            if text and text not in values:
-                values.append(text)
+            if text:
+                candidates.append(text)
 
         except Exception:
             pass
 
-        return values
+        return list(dict.fromkeys(candidates))
 
     def _log_result_surface_snapshot(
         self,
         execution_window: BaseWrapper,
     ) -> None:
-        """
-        Print result-related UIA controls when discovery fails.
-        """
-        log(
-            "UIA result-surface diagnostic snapshot:"
-        )
+        snapshot: list[tuple[str, str, str]] = []
 
-        try:
-            controls = (
-                execution_window.descendants()
-            )
-        except Exception as exc:
-            log(
-                "  Could not enumerate descendants: "
-                f"{exc}"
-            )
-            return
-
-        logged = 0
-
-        for control in controls:
+        for control in safe_descendants(
+            execution_window
+        ):
             try:
                 info = control.element_info
-
-                control_type = normalize_text(
-                    info.control_type or ""
-                )
-
-                name = normalize_text(
-                    info.name or ""
-                )
-
-                text = normalize_text(
-                    control.window_text() or ""
-                )
-
-                class_name = normalize_text(
-                    info.class_name or ""
-                )
-
-                searchable = (
-                    f"{control_type} "
-                    f"{name} "
-                    f"{text} "
-                    f"{class_name}"
-                ).casefold()
-
-                if not any(
-                    token in searchable
-                    for token in (
-                        "result",
-                        "datagrid",
-                        "instrumentname",
-                        "columnvalues",
+                snapshot.append(
+                    (
+                        normalize_text(
+                            info.control_type or ""
+                        ),
+                        normalize_text(info.name or ""),
+                        normalize_text(
+                            info.automation_id or ""
+                        ),
                     )
-                ):
-                    continue
-
-                log(
-                    "  "
-                    f"type={control_type!r}, "
-                    f"name={name!r}, "
-                    f"text={text!r}, "
-                    f"class={class_name!r}"
                 )
-
-                logged += 1
-
-                if logged >= 40:
-                    log(
-                        "  Diagnostic output truncated "
-                        "after 40 controls."
-                    )
-                    break
-
             except Exception:
                 continue
 
-        if logged == 0:
-            log(
-                "  No result-related controls are "
-                "currently exposed through UIA."
-            )
+        log(
+            "Exploration result UIA snapshot: "
+            f"{snapshot[:120]}"
+        )

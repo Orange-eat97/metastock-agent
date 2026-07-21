@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import argparse
-import ctypes
 import os
 import sys
 from pathlib import Path
@@ -10,9 +8,6 @@ from dotenv import load_dotenv
 
 
 APP_NAME = "MetaStockAgent"
-CALIBRATION_DIRECTORY_ENV = "METASTOCK_CALIBRATION_DIR"
-CALIBRATION_PROFILE_ENV = "METASTOCK_CALIBRATION_PROFILE"
-ACTIVE_PROFILE_FILENAME = "active_profile.txt"
 
 
 def is_frozen() -> bool:
@@ -266,221 +261,6 @@ def configure_writable_directory() -> Path:
     return app_data_directory
 
 
-
-def configure_service_import_paths(
-    *,
-    rag_directory: Path,
-    automator_directory: Path,
-) -> None:
-    for directory in (
-        automator_directory,
-        rag_directory,
-    ):
-        value = str(directory)
-
-        if value not in sys.path:
-            sys.path.insert(0, value)
-
-
-def configure_calibration_storage(
-    app_data_directory: Path,
-) -> tuple[Path, str | None]:
-    calibration_directory = (
-        app_data_directory
-        / "calibration_profiles"
-    )
-    calibration_directory.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    os.environ.setdefault(
-        CALIBRATION_DIRECTORY_ENV,
-        str(calibration_directory),
-    )
-
-    explicit_profile = (
-        os.getenv(CALIBRATION_PROFILE_ENV)
-        or ""
-    ).strip()
-
-    if explicit_profile:
-        return calibration_directory, explicit_profile
-
-    marker_path = (
-        calibration_directory
-        / ACTIVE_PROFILE_FILENAME
-    )
-    profile_name: str | None = None
-
-    if marker_path.is_file():
-        profile_name = (
-            marker_path
-            .read_text(encoding="utf-8")
-            .strip()
-        )
-
-    if not profile_name:
-        default_profile = (
-            calibration_directory
-            / "default.json"
-        )
-
-        if default_profile.is_file():
-            profile_name = "default"
-
-    if profile_name:
-        profile_path = (
-            calibration_directory
-            / f"{profile_name}.json"
-        )
-
-        if profile_path.is_file():
-            os.environ[
-                CALIBRATION_PROFILE_ENV
-            ] = profile_name
-        else:
-            profile_name = None
-
-    return calibration_directory, profile_name
-
-
-def parse_calibration_request(
-    arguments: list[str],
-) -> tuple[str, str] | None:
-    if "--calibrate" not in arguments:
-        return None
-
-    parser = argparse.ArgumentParser(
-        prog=Path(sys.argv[0]).name,
-        description=(
-            "Run MetaStock Agent coordinate calibration "
-            "without starting the desktop chat application."
-        ),
-    )
-    parser.add_argument(
-        "--calibrate",
-        action="store_true",
-    )
-    parser.add_argument(
-        "--profile",
-        default="default",
-        help="Calibration profile name.",
-    )
-    parser.add_argument(
-        "--mode",
-        choices=(
-            "explore",
-            "system-test",
-            "all",
-        ),
-        default="explore",
-        help="Which coordinate anchors to record.",
-    )
-    parsed = parser.parse_args(arguments)
-    return parsed.profile, parsed.mode
-
-
-def ensure_calibration_console() -> bool:
-    """
-    Allocate a console for the windowed PyInstaller executable.
-
-    Source-mode calibration already runs in the caller's terminal and
-    therefore does not need a new console.
-    """
-    if (
-        not is_frozen()
-        or os.name != "nt"
-        or not hasattr(ctypes, "windll")
-    ):
-        return False
-
-    kernel32 = ctypes.windll.kernel32
-
-    if kernel32.GetConsoleWindow():
-        return False
-
-    if not kernel32.AllocConsole():
-        return False
-
-    sys.stdin = open(
-        "CONIN$",
-        "r",
-        encoding="utf-8",
-        errors="replace",
-    )
-    sys.stdout = open(
-        "CONOUT$",
-        "w",
-        encoding="utf-8",
-        errors="replace",
-        buffering=1,
-    )
-    sys.stderr = open(
-        "CONOUT$",
-        "w",
-        encoding="utf-8",
-        errors="replace",
-        buffering=1,
-    )
-    return True
-
-
-def pause_calibration_console(
-    console_was_allocated: bool,
-) -> None:
-    if not console_was_allocated:
-        return
-
-    try:
-        input(
-            "\nPress Enter to close this calibration window..."
-        )
-    except (EOFError, OSError):
-        pass
-
-
-def run_calibration_mode(
-    *,
-    profile_name: str,
-    calibration_mode: str,
-    calibration_directory: Path,
-) -> int:
-    console_was_allocated = (
-        ensure_calibration_console()
-    )
-
-    try:
-        from calibrate_coordinates import (
-            run_calibration,
-        )
-
-        run_calibration(
-            profile_name=profile_name,
-            mode=calibration_mode,
-            store_directory=(
-                calibration_directory
-            ),
-        )
-        return 0
-    except KeyboardInterrupt:
-        print(
-            "\nCalibration cancelled. "
-            "No active profile was changed."
-        )
-        return 2
-    except Exception as exc:
-        print(
-            "\nCalibration failed: "
-            f"{type(exc).__name__}: {exc}",
-            file=sys.stderr,
-        )
-        return 1
-    finally:
-        pause_calibration_console(
-            console_was_allocated
-        )
-
 def main() -> int:
     bundle_root = get_bundle_root()
     executable_directory = (
@@ -503,27 +283,9 @@ def main() -> int:
             bundle_root
         )
     )
-    configure_service_import_paths(
-        rag_directory=rag_directory,
-        automator_directory=(
-            automator_directory
-        ),
-    )
 
     app_data_directory = (
         configure_writable_directory()
-    )
-    (
-        calibration_directory,
-        active_calibration_profile,
-    ) = configure_calibration_storage(
-        app_data_directory
-    )
-
-    calibration_request = (
-        parse_calibration_request(
-            sys.argv[1:]
-        )
     )
 
     mode = "frozen" if is_frozen() else "source"
@@ -543,28 +305,6 @@ def main() -> int:
         "[release] Writable data: "
         f"{app_data_directory}"
     )
-    print(
-        "[release] Calibration directory: "
-        f"{calibration_directory}"
-    )
-    print(
-        "[release] Active calibration profile: "
-        f"{active_calibration_profile or 'not configured'}"
-    )
-
-    if calibration_request is not None:
-        profile_name, calibration_mode = (
-            calibration_request
-        )
-        return run_calibration_mode(
-            profile_name=profile_name,
-            calibration_mode=(
-                calibration_mode
-            ),
-            calibration_directory=(
-                calibration_directory
-            ),
-        )
 
     # Import only after paths and environment variables are ready.
     #

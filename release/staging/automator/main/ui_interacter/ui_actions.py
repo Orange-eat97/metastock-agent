@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import time
+from typing import Optional
 
 import pyperclip
 from pywinauto import mouse
 from pywinauto.base_wrapper import BaseWrapper
 from pywinauto.keyboard import send_keys
 
+from ui_interacter.coordinate_calibration import CoordinateMapper
 from ui_interacter.ui_core import log, rect_center
 
 
@@ -18,10 +20,12 @@ class UiActions:
         click_settle_delay: float = 0.03,
         text_settle_delay: float = 0.08,
         key_delay: float = 0.01,
+        coordinate_mapper: Optional[CoordinateMapper] = None,
     ) -> None:
         self.click_settle_delay = click_settle_delay
         self.text_settle_delay = text_settle_delay
         self.key_delay = key_delay
+        self.coordinate_mapper = coordinate_mapper
 
     def click_control(
         self,
@@ -61,13 +65,62 @@ class UiActions:
                 label,
             )
 
+    def has_calibrated_point(
+        self,
+        point_name: str | None,
+    ) -> bool:
+        return (
+            self.coordinate_mapper is not None
+            and bool(point_name)
+            and point_name in self.coordinate_mapper.profile.points
+        )
+
+    def resolve_calibrated_point(
+        self,
+        *,
+        main: BaseWrapper,
+        point_name: str,
+    ) -> tuple[int, int]:
+        if self.coordinate_mapper is None:
+            raise RuntimeError(
+                "No coordinate calibration profile is loaded."
+            )
+
+        return self.coordinate_mapper.resolve(
+            main=main,
+            point_name=point_name,
+        )
+
     def click_point(
         self,
         x: int,
         y: int,
         label: str = "point",
+        *,
+        main: Optional[BaseWrapper] = None,
+        calibration_point_name: Optional[str] = None,
     ) -> None:
-        log(f"Clicking {label} at ({x}, {y})")
+        """
+        Click an existing coordinate fallback point.
+
+        Calibration can replace only coordinates supplied by the caller's
+        existing fallback branch. It never selects a semantic UI target.
+        """
+        used_calibration = False
+
+        if (
+            main is not None
+            and calibration_point_name
+            and self.has_calibrated_point(calibration_point_name)
+        ):
+            x, y = self.resolve_calibrated_point(
+                main=main,
+                point_name=calibration_point_name,
+            )
+            used_calibration = True
+
+        suffix = " [calibrated]" if used_calibration else ""
+        log(f"Clicking {label}{suffix} at ({x}, {y})")
 
         mouse.click(
             button="left",
