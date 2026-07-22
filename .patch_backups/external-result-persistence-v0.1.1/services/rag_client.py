@@ -377,21 +377,28 @@ class LocalRagClient:
     def save_explorer_result(
         self,
         *,
-        explorer_id: str | None,
-        explorer_name: str | None,
-        run_started_at: str,
+        explorer_id: str,
         result_payload: dict[str, Any],
         capture_started_at: str | None,
         capture_finished_at: str | None,
         diagnostics: dict[str, Any],
     ) -> dict[str, Any]:
-        """Persist one normalized MetaStock result artifact."""
-        if not isinstance(result_payload, dict):
+        """
+        Persist one normalized MetaStock result artifact.
+
+        The agent passes the complete versioned result payload. This
+        adapter translates it into the narrower RAG result-service call.
+        """
+        if not isinstance(
+            result_payload,
+            dict,
+        ):
             raise ValueError(
                 "result_payload must be a dictionary."
             )
 
         rows = result_payload.get("rows") or []
+
         if not isinstance(rows, list):
             raise ValueError(
                 "result_payload.rows must be a list."
@@ -406,31 +413,48 @@ class LocalRagClient:
             self._result_store_service
             .save_explorer_results(
                 explorer_id=explorer_id,
-                explorer_name=explorer_name,
-                run_started_at=run_started_at,
                 schema_version=str(
-                    result_payload.get("schema_version")
+                    result_payload.get(
+                        "schema_version"
+                    )
                     or ""
                 ),
                 outcome=str(
-                    result_payload.get("outcome")
+                    result_payload.get(
+                        "outcome"
+                    )
                     or ""
                 ),
                 expected_count=int(
-                    result_payload.get("expected_count", 0)
+                    result_payload.get(
+                        "expected_count",
+                        0,
+                    )
                 ),
                 matched_count=int(
-                    result_payload.get("matched_count", 0)
+                    result_payload.get(
+                        "matched_count",
+                        0,
+                    )
                 ),
                 has_matches=bool(
-                    result_payload.get("has_matches", False)
+                    result_payload.get(
+                        "has_matches",
+                        False,
+                    )
                 ),
                 clipboard_verification=(
-                    result_payload.get("clipboard_verification")
+                    result_payload.get(
+                        "clipboard_verification"
+                    )
                 ),
                 rows=rows,
-                capture_started_at=capture_started_at,
-                capture_finished_at=capture_finished_at,
+                capture_started_at=(
+                    capture_started_at
+                ),
+                capture_finished_at=(
+                    capture_finished_at
+                ),
                 diagnostics=diagnostics,
             )
         )

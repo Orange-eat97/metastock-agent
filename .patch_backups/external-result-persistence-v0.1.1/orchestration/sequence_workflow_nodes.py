@@ -128,7 +128,6 @@ class ExecuteExplorerSequenceStepNode:
             stage=stage,
             context=context,
             step=step,
-            prior_results=current_results,
         )
 
         result = self._executor.execute(step.tool_name, arguments)
@@ -266,7 +265,6 @@ def _build_step_arguments(
     stage: ExplorerSequenceStagePlan,
     context: ChatContext,
     step: Any,
-    prior_results: list[ToolResult],
 ) -> dict[str, object]:
     workflow = stage.workflow_plan
     arguments: dict[str, object] = {}
@@ -304,15 +302,6 @@ def _build_step_arguments(
         arguments[tool_argument] = value
 
     arguments.update(step.argument_overrides)
-
-    if step.tool_name == RESULT_CAPTURE_TOOL_NAME:
-        arguments["explorer_name"] = stage.explorer_reference
-        run_started_at = _find_prior_run_started_at(
-            prior_results
-        )
-        if run_started_at:
-            arguments["run_started_at"] = run_started_at
-
     return arguments
 
 
@@ -482,19 +471,3 @@ def _complete_state(
         "workflow_succeeded": succeeded,
         "workflow_failed_tool": failed_tool,
     }
-
-
-def _find_prior_run_started_at(
-    prior_results: list[ToolResult],
-) -> str | None:
-    for result in reversed(prior_results):
-        if result.tool_name != (
-            "run_selected_explorer_in_metastock"
-        ):
-            continue
-        started_at = str(
-            result.data.get("started_at") or ""
-        ).strip()
-        if started_at:
-            return started_at
-    return None

@@ -169,19 +169,6 @@ class ExecuteConversationWorkflowStepNode:
 
         arguments.update(step.argument_overrides)
 
-        if step.tool_name == "read_metastock_explorer_results":
-            run_started_at = _find_prior_run_started_at(
-                previous_results
-            )
-            if run_started_at:
-                arguments["run_started_at"] = run_started_at
-
-            external_name = _external_name_from_reference(
-                arguments.get("explorer_id")
-            )
-            if external_name:
-                arguments["explorer_name"] = external_name
-
         result = self._executor.execute(
             step.tool_name,
             arguments,
@@ -221,33 +208,3 @@ class ExecuteConversationWorkflowStepNode:
                 else step.tool_name
             ),
         }
-
-
-def _find_prior_run_started_at(
-    previous_results: list[dict[str, object]],
-) -> str | None:
-    for raw_result in reversed(previous_results):
-        if not isinstance(raw_result, dict):
-            continue
-        if raw_result.get("tool_name") != (
-            "run_selected_explorer_in_metastock"
-        ):
-            continue
-        data = raw_result.get("data")
-        if not isinstance(data, dict):
-            continue
-        started_at = str(data.get("started_at") or "").strip()
-        if started_at:
-            return started_at
-    return None
-
-
-def _external_name_from_reference(
-    value: object,
-) -> str | None:
-    reference = str(value or "").strip()
-    prefix = "metastock-name:"
-    if not reference.startswith(prefix):
-        return None
-    name = reference[len(prefix):].strip()
-    return name or None

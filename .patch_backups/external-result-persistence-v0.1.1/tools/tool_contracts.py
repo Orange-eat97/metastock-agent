@@ -308,22 +308,10 @@ class ReadMetaStockResultsInput(BaseModel):
     explorer_id: str = Field(
         min_length=1,
         description=(
-            "Stored explorer_outputs UUID or an internal "
-            "metastock-name:<exact name> runtime reference."
-        ),
-    )
-    explorer_name: str | None = Field(
-        default=None,
-        description=(
-            "Exact MetaStock Explorer name. Required for a "
-            "MetaStock-only Explorer and optional for a stored Explorer."
-        ),
-    )
-    run_started_at: str | None = Field(
-        default=None,
-        description=(
-            "Timestamp returned by the preceding MetaStock run step. "
-            "The result reader start time is used only as a fallback."
+            "explorer_outputs ID associated with the "
+            "currently open MetaStock result window. "
+            "Required so the result artifact can be "
+            "stored without becoming orphaned."
         ),
     )
     close_after_read: bool = Field(
@@ -336,9 +324,7 @@ class ReadMetaStockResultsInput(BaseModel):
 
 
 class ReadMetaStockResultsOutput(BaseModel):
-    explorer_id: str | None = None
-    explorer_name: str | None = None
-    run_started_at: str | None = None
+    explorer_id: str
     result_id: str | None = None
     stored_at: str | None = None
     persisted: bool = False
@@ -354,7 +340,6 @@ class ReadMetaStockResultsOutput(BaseModel):
     diagnostics: dict[str, Any] = Field(
         default_factory=dict
     )
-
 
 class GetExplorerResultInput(BaseModel):
     result_id: str = Field(
@@ -392,9 +377,7 @@ class ListExplorerResultsInput(BaseModel):
 
 class StoredMetaStockExplorerResultDTO(BaseModel):
     result_id: str
-    explorer_id: str | None = None
-    explorer_name: str
-    run_started_at: str
+    explorer_id: str
     created_at: str | None = None
 
     schema_version: Literal["1.0"]
@@ -428,9 +411,7 @@ class MetaStockExplorerResultSummaryDTO(
     BaseModel
 ):
     result_id: str
-    explorer_id: str | None = None
-    explorer_name: str
-    run_started_at: str
+    explorer_id: str
     created_at: str | None = None
 
     schema_version: Literal["1.0"]
@@ -447,6 +428,7 @@ class MetaStockExplorerResultSummaryDTO(
 
     capture_started_at: str | None = None
     capture_finished_at: str | None = None
+
 
 
 class GetExplorerResultOutput(BaseModel):

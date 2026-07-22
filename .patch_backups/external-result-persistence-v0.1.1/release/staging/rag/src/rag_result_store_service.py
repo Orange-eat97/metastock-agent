@@ -17,7 +17,7 @@ SUPPORTED_OUTCOMES = {
     "no_matches",
 }
 FULL_RESULT_SELECT = (
-    "id, explorer_id, explorer_name, run_started_at, created_at, "
+    "id, explorer_id, created_at, "
     "schema_version, outcome, "
     "expected_count, matched_count, "
     "has_matches, clipboard_verified, "
@@ -27,7 +27,7 @@ FULL_RESULT_SELECT = (
 )
 
 RESULT_SUMMARY_SELECT = (
-    "id, explorer_id, explorer_name, run_started_at, created_at, "
+    "id, explorer_id, created_at, "
     "schema_version, outcome, "
     "expected_count, matched_count, "
     "has_matches, clipboard_verified, "
@@ -64,9 +64,7 @@ class RagExplorerResultStoreService:
     def save_explorer_results(
         self,
         *,
-        explorer_id: str | None,
-        explorer_name: str | None,
-        run_started_at: str,
+        explorer_id: str,
         schema_version: str,
         outcome: str,
         expected_count: int,
@@ -80,25 +78,10 @@ class RagExplorerResultStoreService:
         capture_finished_at: str | None = None,
         diagnostics: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        cleaned_explorer_id = self._optional_text(explorer_id)
-        cleaned_explorer_name = self._optional_text(explorer_name)
-        cleaned_run_started_at = self._required_text(
-            run_started_at,
-            "run_started_at",
+        cleaned_explorer_id = self._required_text(
+            explorer_id,
+            "explorer_id",
         )
-
-        if cleaned_explorer_id and not cleaned_explorer_name:
-            cleaned_explorer_name = (
-                self._resolve_stored_explorer_name(
-                    cleaned_explorer_id
-                )
-            )
-
-        if not cleaned_explorer_name:
-            raise ValueError(
-                "explorer_name is required when explorer_id is null."
-            )
-
         cleaned_schema_version = self._required_text(
             schema_version,
             "schema_version",
@@ -107,11 +90,16 @@ class RagExplorerResultStoreService:
             outcome,
             "outcome",
         )
-        if cleaned_schema_version != SUPPORTED_SCHEMA_VERSION:
+
+        if (
+            cleaned_schema_version
+            != SUPPORTED_SCHEMA_VERSION
+        ):
             raise ValueError(
                 "Unsupported result schema version: "
                 f"{cleaned_schema_version!r}."
             )
+
         if cleaned_outcome not in SUPPORTED_OUTCOMES:
             raise ValueError(
                 "Unsupported result outcome: "
@@ -121,20 +109,28 @@ class RagExplorerResultStoreService:
         expected_count = int(expected_count)
         matched_count = int(matched_count)
         has_matches = bool(has_matches)
+
         if expected_count < 0 or matched_count < 0:
-            raise ValueError("Result counts cannot be negative.")
+            raise ValueError(
+                "Result counts cannot be negative."
+            )
+
         if not isinstance(rows, list):
-            raise ValueError("rows must be a list.")
+            raise ValueError(
+                "rows must be a list."
+            )
 
         normalized_rows = [
             self._normalize_row(row)
             for row in rows
         ]
+
         normalized_verification = (
             self._normalize_verification(
                 clipboard_verification
             )
-            if clipboard_verification is not None
+            if clipboard_verification
+            is not None
             else None
         )
 
@@ -149,12 +145,15 @@ class RagExplorerResultStoreService:
                     "A no_matches result must contain "
                     "zero rows and zero counts."
                 )
+
             clipboard_verified = None
+
         else:
             if (
                 expected_count <= 0
                 or matched_count != expected_count
-                or len(normalized_rows) != matched_count
+                or len(normalized_rows)
+                != matched_count
                 or not has_matches
             ):
                 raise ValueError(
@@ -162,39 +161,54 @@ class RagExplorerResultStoreService:
                     "equal positive expected, matched, "
                     "and row counts."
                 )
+
             if (
                 normalized_verification is None
-                or normalized_verification.get("passed")
+                or normalized_verification.get(
+                    "passed"
+                )
                 is not True
             ):
                 raise ValueError(
                     "A matches_found result must include "
                     "passed clipboard verification."
                 )
+
             clipboard_verified = True
 
         if diagnostics is None:
             diagnostics = {}
+
         if not isinstance(diagnostics, dict):
-            raise ValueError("diagnostics must be a dictionary.")
+            raise ValueError(
+                "diagnostics must be a dictionary."
+            )
 
         row = {
             "explorer_id": cleaned_explorer_id,
-            "explorer_name": cleaned_explorer_name,
-            "run_started_at": cleaned_run_started_at,
-            "schema_version": cleaned_schema_version,
+            "schema_version": (
+                cleaned_schema_version
+            ),
             "outcome": cleaned_outcome,
             "expected_count": expected_count,
             "matched_count": matched_count,
             "has_matches": has_matches,
-            "clipboard_verified": clipboard_verified,
-            "clipboard_verification": normalized_verification,
-            "rows": normalized_rows,
-            "capture_started_at": self._optional_text(
-                capture_started_at
+            "clipboard_verified": (
+                clipboard_verified
             ),
-            "capture_finished_at": self._optional_text(
-                capture_finished_at
+            "clipboard_verification": (
+                normalized_verification
+            ),
+            "rows": normalized_rows,
+            "capture_started_at": (
+                self._optional_text(
+                    capture_started_at
+                )
+            ),
+            "capture_finished_at": (
+                self._optional_text(
+                    capture_finished_at
+                )
             ),
             "diagnostics": diagnostics,
         }
@@ -204,35 +218,26 @@ class RagExplorerResultStoreService:
             .insert(row)
             .execute()
         )
+
         if not response.data:
             raise RuntimeError(
-                "Supabase inserted no explorer_result_sets row."
+                "Supabase inserted no "
+                "explorer_result_sets row."
             )
 
         stored = response.data[0]
-        raw_stored_explorer_id = stored.get("explorer_id")
+
         return {
             "result_id": str(stored["id"]),
-            "explorer_id": (
-                str(raw_stored_explorer_id)
-                if raw_stored_explorer_id is not None
-                else None
-            ),
-            "explorer_name": self._required_text(
-                stored.get("explorer_name")
-                or cleaned_explorer_name,
-                "stored explorer_name",
-            ),
-            "run_started_at": self._required_text(
-                stored.get("run_started_at")
-                or cleaned_run_started_at,
-                "stored run_started_at",
+            "explorer_id": str(
+                stored.get("explorer_id")
+                or cleaned_explorer_id
             ),
             "created_at": self._optional_text(
                 stored.get("created_at")
             ),
         }
-
+    
     def get_result(
         self,
         result_id: str,
@@ -351,36 +356,13 @@ class RagExplorerResultStoreService:
         ]
 
 
-    def _resolve_stored_explorer_name(
-        self,
-        explorer_id: str,
-    ) -> str:
-        response = (
-            self.client.table("explorer_outputs")
-            .select("full_output_json")
-            .eq("id", explorer_id)
-            .limit(1)
-            .execute()
-        )
-        if not response.data:
-            raise ValueError(
-                "No explorer_outputs row found for "
-                f"id={explorer_id}."
-            )
-        payload = response.data[0].get("full_output_json")
-        if not isinstance(payload, dict):
-            raise RuntimeError(
-                "Stored Explorer full_output_json must be a dictionary."
-            )
-        return self._required_text(
-            payload.get("explorer_name"),
-            "stored explorer_name",
-        )
-
     def _normalize_stored_result(
         self,
         row: Any,
     ) -> dict[str, Any]:
+        """
+        Convert one database row into the stable full-result contract.
+        """
         if not isinstance(row, dict):
             raise RuntimeError(
                 "Stored result row must be a dictionary."
@@ -390,6 +372,7 @@ class RagExplorerResultStoreService:
             row.get("schema_version"),
             "stored schema_version",
         )
+
         if schema_version != SUPPORTED_SCHEMA_VERSION:
             raise RuntimeError(
                 "Stored result uses unsupported schema "
@@ -400,6 +383,7 @@ class RagExplorerResultStoreService:
             row.get("outcome"),
             "stored outcome",
         )
+
         if outcome not in SUPPORTED_OUTCOMES:
             raise RuntimeError(
                 "Stored result uses unsupported outcome "
@@ -407,46 +391,55 @@ class RagExplorerResultStoreService:
             )
 
         raw_rows = row.get("rows") or []
+
         if not isinstance(raw_rows, list):
             raise RuntimeError(
                 "Stored result rows must be a list."
             )
+
         normalized_rows = [
             self._normalize_row(item)
             for item in raw_rows
         ]
-        raw_verification = row.get("clipboard_verification")
+
+        raw_verification = row.get(
+            "clipboard_verification"
+        )
+
         clipboard_verification = (
-            self._normalize_verification(raw_verification)
+            self._normalize_verification(
+                raw_verification
+            )
             if raw_verification is not None
             else None
         )
+
         diagnostics = row.get("diagnostics") or {}
+
         if not isinstance(diagnostics, dict):
             raise RuntimeError(
-                "Stored result diagnostics must be a dictionary."
+                "Stored result diagnostics must be "
+                "a dictionary."
             )
-        raw_clipboard_verified = row.get("clipboard_verified")
+
+        raw_clipboard_verified = row.get(
+            "clipboard_verified"
+        )
+
         clipboard_verified = (
             None
             if raw_clipboard_verified is None
             else bool(raw_clipboard_verified)
         )
-        raw_explorer_id = row.get("explorer_id")
 
         return {
             "result_id": self._required_text(
                 row.get("id"),
                 "stored result id",
             ),
-            "explorer_id": self._optional_text(raw_explorer_id),
-            "explorer_name": self._required_text(
-                row.get("explorer_name"),
-                "stored explorer_name",
-            ),
-            "run_started_at": self._required_text(
-                row.get("run_started_at"),
-                "stored run_started_at",
+            "explorer_id": self._required_text(
+                row.get("explorer_id"),
+                "stored explorer id",
             ),
             "created_at": self._optional_text(
                 row.get("created_at")
@@ -462,22 +455,34 @@ class RagExplorerResultStoreService:
             "has_matches": bool(
                 row.get("has_matches", False)
             ),
-            "clipboard_verified": clipboard_verified,
-            "clipboard_verification": clipboard_verification,
-            "rows": normalized_rows,
-            "capture_started_at": self._optional_text(
-                row.get("capture_started_at")
+            "clipboard_verified": (
+                clipboard_verified
             ),
-            "capture_finished_at": self._optional_text(
-                row.get("capture_finished_at")
+            "clipboard_verification": (
+                clipboard_verification
+            ),
+            "rows": normalized_rows,
+            "capture_started_at": (
+                self._optional_text(
+                    row.get("capture_started_at")
+                )
+            ),
+            "capture_finished_at": (
+                self._optional_text(
+                    row.get("capture_finished_at")
+                )
             ),
             "diagnostics": dict(diagnostics),
         }
+
 
     def _normalize_result_summary(
         self,
         row: Any,
     ) -> dict[str, Any]:
+        """
+        Convert one database row into the bounded list contract.
+        """
         if not isinstance(row, dict):
             raise RuntimeError(
                 "Stored result summary must be a dictionary."
@@ -487,35 +492,32 @@ class RagExplorerResultStoreService:
             row.get("schema_version"),
             "stored schema_version",
         )
+
         if schema_version != SUPPORTED_SCHEMA_VERSION:
             raise RuntimeError(
                 "Stored result summary uses unsupported "
                 f"schema version {schema_version!r}."
             )
+
         outcome = self._required_text(
             row.get("outcome"),
             "stored outcome",
         )
+
         if outcome not in SUPPORTED_OUTCOMES:
             raise RuntimeError(
                 "Stored result summary uses unsupported "
                 f"outcome {outcome!r}."
             )
 
-        raw_explorer_id = row.get("explorer_id")
         return {
             "result_id": self._required_text(
                 row.get("id"),
                 "stored result id",
             ),
-            "explorer_id": self._optional_text(raw_explorer_id),
-            "explorer_name": self._required_text(
-                row.get("explorer_name"),
-                "stored explorer_name",
-            ),
-            "run_started_at": self._required_text(
-                row.get("run_started_at"),
-                "stored run_started_at",
+            "explorer_id": self._required_text(
+                row.get("explorer_id"),
+                "stored explorer id",
             ),
             "created_at": self._optional_text(
                 row.get("created_at")
@@ -534,13 +536,19 @@ class RagExplorerResultStoreService:
             "clipboard_verified": (
                 None
                 if row.get("clipboard_verified") is None
-                else bool(row.get("clipboard_verified"))
+                else bool(
+                    row.get("clipboard_verified")
+                )
             ),
-            "capture_started_at": self._optional_text(
-                row.get("capture_started_at")
+            "capture_started_at": (
+                self._optional_text(
+                    row.get("capture_started_at")
+                )
             ),
-            "capture_finished_at": self._optional_text(
-                row.get("capture_finished_at")
+            "capture_finished_at": (
+                self._optional_text(
+                    row.get("capture_finished_at")
+                )
             ),
         }
 

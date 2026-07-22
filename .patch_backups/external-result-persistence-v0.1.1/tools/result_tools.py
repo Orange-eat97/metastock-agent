@@ -10,9 +10,6 @@ from services.automator_client import (
     UnavailableAutomatorClient,
 )
 
-EXTERNAL_METASTOCK_PREFIX = "metastock-name:"
-
-
 from tools.tool_contracts import (
     MetaStockExplorerResultsDTO,
     ReadMetaStockResultsInput,
@@ -43,9 +40,7 @@ class ExplorerResultClientProtocol(Protocol):
     def save_explorer_result(
         self,
         *,
-        explorer_id: str | None,
-        explorer_name: str | None,
-        run_started_at: str,
+        explorer_id: str,
         result_payload: dict[str, Any],
         capture_started_at: str | None,
         capture_finished_at: str | None,
@@ -245,34 +240,13 @@ class MetaStockResultToolService:
                 )
             )
 
-            (
-                persistence_explorer_id,
-                persistence_explorer_name,
-            ) = _resolve_persistence_identity(
-                explorer_reference=payload.explorer_id,
-                supplied_name=payload.explorer_name,
-            )
-            run_started_at = str(
-                payload.run_started_at
-                or result.started_at
-                or ""
-            ).strip()
-            if not run_started_at:
-                raise RuntimeError(
-                    "A MetaStock result requires run_started_at."
-                )
-
             try:
                 stored = (
                     self.result_client
                     .save_explorer_result(
                         explorer_id=(
-                            persistence_explorer_id
+                            payload.explorer_id
                         ),
-                        explorer_name=(
-                            persistence_explorer_name
-                        ),
-                        run_started_at=run_started_at,
                         result_payload=(
                             result_payload
                         ),
@@ -291,19 +265,11 @@ class MetaStockResultToolService:
                 (
                     stored_result_id,
                     stored_explorer_id,
-                    stored_explorer_name,
-                    stored_run_started_at,
                     stored_at,
                 ) = self._stored_result_metadata(
                     stored,
                     fallback_explorer_id=(
-                        persistence_explorer_id
-                    ),
-                    fallback_explorer_name=(
-                        persistence_explorer_name
-                    ),
-                    fallback_run_started_at=(
-                        run_started_at
+                        payload.explorer_id
                     ),
                 )
 
@@ -386,8 +352,6 @@ class MetaStockResultToolService:
 
             output = ReadMetaStockResultsOutput(
                 explorer_id=stored_explorer_id,
-                explorer_name=stored_explorer_name,
-                run_started_at=stored_run_started_at,
                 result_id=stored_result_id,
                 stored_at=stored_at,
                 persisted=True,
@@ -744,17 +708,11 @@ class MetaStockResultToolService:
     def _stored_result_metadata(
         stored: Any,
         *,
-        fallback_explorer_id: str | None,
-        fallback_explorer_name: str | None,
-        fallback_run_started_at: str,
-    ) -> tuple[
-        str,
-        str | None,
-        str,
-        str,
-        str | None,
-    ]:
-        """Validate the narrow response returned by LocalRagClient."""
+        fallback_explorer_id: str,
+    ) -> tuple[str, str, str | None]:
+        """
+        Validate the narrow response returned by LocalRagClient.
+        """
         if not isinstance(stored, dict):
             raise TypeError(
                 "The RAG result client returned an "
@@ -762,54 +720,45 @@ class MetaStockResultToolService:
                 f"{type(stored).__name__}."
             )
 
-        result_id = str(stored.get("result_id") or "").strip()
+        result_id = str(
+            stored.get("result_id")
+            or ""
+        ).strip()
+
         if not result_id:
             raise RuntimeError(
-                "The RAG result client returned no result_id."
+                "The RAG result client returned no "
+                "result_id."
             )
 
-        raw_explorer_id = stored.get("explorer_id")
-        explorer_id = (
-            str(raw_explorer_id).strip()
-            if raw_explorer_id is not None
-            else fallback_explorer_id
+        explorer_id = str(
+            stored.get("explorer_id")
+            or fallback_explorer_id
+            or ""
+        ).strip()
+
+        if not explorer_id:
+            raise RuntimeError(
+                "The RAG result client returned no "
+                "explorer_id."
+            )
+
+        raw_created_at = stored.get(
+            "created_at"
         )
-        explorer_id = explorer_id or None
 
-        explorer_name = str(
-            stored.get("explorer_name")
-            or fallback_explorer_name
-            or ""
-        ).strip()
-        if not explorer_name:
-            raise RuntimeError(
-                "The RAG result client returned no explorer_name."
-            )
-
-        run_started_at = str(
-            stored.get("run_started_at")
-            or fallback_run_started_at
-            or ""
-        ).strip()
-        if not run_started_at:
-            raise RuntimeError(
-                "The RAG result client returned no run_started_at."
-            )
-
-        raw_created_at = stored.get("created_at")
         created_at = (
             str(raw_created_at).strip()
             if raw_created_at is not None
             else None
         )
+
         if created_at == "":
             created_at = None
 
         return (
             result_id,
             explorer_id,
-            explorer_name,
-            run_started_at,
             created_at,
         )
 
@@ -1049,19 +998,3 @@ class MetaStockResultToolService:
                 severity="warning",
             ),
         )
-
-
-def _resolve_persistence_identity(
-    *,
-    explorer_reference: str,
-    supplied_name: str | None,
-) -> tuple[str | None, str | None]:
-    cleaned_reference = str(explorer_reference or "").strip()
-    cleaned_name = str(supplied_name or "").strip() or None
-
-    prefix = "metastock-name:"
-    if cleaned_reference.startswith(prefix):
-        external_name = cleaned_reference[len(prefix):].strip()
-        return None, cleaned_name or external_name or None
-
-    return cleaned_reference or None, cleaned_name
