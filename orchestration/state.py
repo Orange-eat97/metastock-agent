@@ -42,6 +42,17 @@ class MetaStockGraphState(
     workflow_succeeded: bool
     workflow_failed_tool: str | None
 
+    sequence_plan: dict[str, Any]
+    sequence_stage_index: int
+    sequence_step_index: int
+    sequence_stage_results: list[dict[str, Any]]
+    sequence_current_results: list[dict[str, Any]]
+    sequence_context: dict[str, Any]
+    sequence_complete: bool
+    sequence_succeeded: bool
+    sequence_failed_stage_index: int | None
+    sequence_failed_tool: str | None
+
     composed_response: str
     turn_output: dict[str, Any]
 

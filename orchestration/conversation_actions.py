@@ -15,6 +15,7 @@ ActionKind = Literal[
     "command",
 ]
 COMMAND_ACTION_NAME = "execute_explorer_command"
+SEQUENCE_ACTION_NAME = "execute_explorer_sequence"
 
 
 class RegistryCatalogProtocol(Protocol):
@@ -330,6 +331,64 @@ def _command_schema(
     }
 
 
+def _sequence_schema(
+    enabled_tool_names: set[str],
+) -> dict[str, Any]:
+    create_available = (
+        "create_explorer_in_metastock" in enabled_tool_names
+    )
+    create_property: dict[str, Any] = {
+        "type": "boolean",
+        "description": (
+            "Create this stored Explorer in MetaStock before selecting and "
+            "running it. Leave false when it already exists in MetaStock."
+        ),
+        "default": False,
+    }
+    if not create_available:
+        create_property["enum"] = [False]
+
+    return {
+        "type": "object",
+        "properties": {
+            "stages": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 10,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "explorer_reference": EXPLORER_REFERENCE_SCHEMA,
+                        "instruments": {
+                            "type": "string",
+                            "description": (
+                                "Exact MetaStock instrument, exchange, or "
+                                "custom-list labels for this stage. Use 'all' "
+                                "when no narrower universe was requested."
+                            ),
+                            "default": "all",
+                        },
+                        "create_in_metastock": create_property,
+                    },
+                    "required": ["explorer_reference"],
+                    "additionalProperties": False,
+                },
+            },
+            "stop_on_failure": {
+                "type": "boolean",
+                "enum": [True],
+                "default": True,
+                "description": (
+                    "The MVP always stops before later stages when one "
+                    "MetaStock action fails."
+                ),
+            },
+        },
+        "required": ["stages"],
+        "additionalProperties": False,
+    }
+
+
 def build_conversation_actions(
     registry: RegistryCatalogProtocol,
     workflows: Any = None,
@@ -374,6 +433,28 @@ def build_conversation_actions(
                 ),
                 kind="tool",
                 parameters=parameters,
+            )
+        )
+
+    sequence_tools = {
+        "select_explorer_in_metastock",
+        "run_selected_explorer_in_metastock",
+        "read_metastock_explorer_results",
+    }
+    if sequence_tools.issubset(enabled_names):
+        actions.append(
+            ConversationActionDefinition(
+                name=SEQUENCE_ACTION_NAME,
+                description=(
+                    "Run two or more Explorers sequentially. Every stage has "
+                    "its own Explorer reference and instrument universe. Each "
+                    "stage selects, runs, captures, persists, and closes its "
+                    "result before the next stage starts. Optionally create a "
+                    "stored Explorer in MetaStock first. Never feed one "
+                    "stage's matched symbols into the next stage."
+                ),
+                kind="command",
+                parameters=_sequence_schema(enabled_names),
             )
         )
 

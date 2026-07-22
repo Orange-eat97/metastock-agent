@@ -89,6 +89,10 @@ class ChatRoute(str, Enum):
         "create_run_and_read_explorer_sequence"
     )
 
+    EXECUTE_EXPLORER_SEQUENCE = (
+        "execute_explorer_sequence"
+    )
+
     RESPOND = "respond"
     CLARIFY = "clarify"
     PLANNED_WORKFLOW = "planned_workflow"

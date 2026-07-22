@@ -64,6 +64,16 @@ class InitializeConversationTurnNode:
             "workflow_complete": False,
             "workflow_succeeded": False,
             "workflow_failed_tool": None,
+            "sequence_plan": {},
+            "sequence_stage_index": 0,
+            "sequence_step_index": 0,
+            "sequence_stage_results": [],
+            "sequence_current_results": [],
+            "sequence_context": {},
+            "sequence_complete": False,
+            "sequence_succeeded": False,
+            "sequence_failed_stage_index": None,
+            "sequence_failed_tool": None,
             "composed_response": "",
             "turn_output": {},
         }
@@ -345,6 +355,7 @@ def _deterministic_display_message(
         "get_explorer_upload_template",
         "upload_explorer",
         "convert_explorer_to_system_test",
+        "execute_explorer_sequence",
     }
     for result in reversed(results):
         if result.tool_name not in protected_tools:

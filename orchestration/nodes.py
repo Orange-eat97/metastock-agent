@@ -566,6 +566,9 @@ def route_after_resolution(
     if resolution.outcome == "workflow":
         return "workflow"
 
+    if resolution.outcome == "sequence":
+        return "sequence"
+
     return "finalize"
 
 

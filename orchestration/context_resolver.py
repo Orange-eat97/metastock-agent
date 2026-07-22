@@ -25,6 +25,7 @@ ResolutionOutcome = Literal[
     "respond",
     "clarify",
     "workflow",
+    "sequence",
 ]
 
 
