@@ -547,9 +547,9 @@ class MetaStockAutomatorService:
             boundary="select_explorer",
             runner=select_explorer_request,
             success_message=(
-                "Explorer {explorer_name!r} and "
-                "instruments were selected in "
-                "MetaStock. Execution has not started."
+                "MetaStock selection step completed. "
+                "The existing instrument selection "
+                "was left unchanged."
             ),
             result_available=False,
         )

@@ -252,9 +252,10 @@ class StaticWorkflowCatalog:
         return WorkflowStep(
             tool_name=tool_name,
             explorer_source=explorer_source,
-            argument_bindings={
-                "instruments": "instruments"
-            },
+            #instrument is commented out due to insufficient UI inspection, will fix in the future.
+            # argument_bindings={
+            #     "instruments": "instruments"
+            # },
         )
 
     @staticmethod

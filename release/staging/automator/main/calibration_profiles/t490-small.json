@@ -1,0 +1,29 @@
+{
+  "profile_version": "1.0",
+  "profile_name": "t490-small",
+  "window_title": "Main - MetaStock",
+  "window_width": 1500,
+  "window_height": 854,
+  "dpi": 144,
+  "created_at_epoch": 1784818226.929433,
+  "points": {
+    "explore_tab": {
+      "name": "explore_tab",
+      "absolute_x": 36,
+      "absolute_y": 416,
+      "window_relative_x": 27,
+      "window_relative_y": 401,
+      "normalized_x": 0.018,
+      "normalized_y": 0.46955503512880564
+    },
+    "start_exploration": {
+      "name": "start_exploration",
+      "absolute_x": 1310,
+      "absolute_y": 828,
+      "window_relative_x": 1301,
+      "window_relative_y": 813,
+      "normalized_x": 0.8673333333333333,
+      "normalized_y": 0.9519906323185011
+    }
+  }
+}

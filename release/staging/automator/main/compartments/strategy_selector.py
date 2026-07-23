@@ -237,7 +237,7 @@ class StrategySelector:
             first_filtered_target_ready,
             timeout=self.search_filter_timeout,
             interval=0.10,
-            stable_reads=3,
+            stable_reads=1,
             error_msg=(
                 "No Explorer row or checkbox appeared "
                 "after searching"

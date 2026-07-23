@@ -50,28 +50,56 @@ class ExploreWorkflow:
         self.execution_monitor = execution_monitor
         self.result_capture = result_capture
 
+#insufficient inspection to UI, will fix in the future
+    # def select_existing_explorer(
+    #     self,
+    #     request: ExploreRequest,
+    # ) -> BaseWrapper:
+    #     """
+    #     Select an existing Explorer and instruments.
+
+    #     This method does not create or run anything.
+    #     """
+    #     main = self.app.connect()
+    #     self.console.open(main)
+    #     self.strategy_selector.select(main, request.strategy_name)
+
+    #     if request.select_all_instruments:
+    #         self.instrument_selector.ensure_all_selected(main)
+    #     else:
+    #         self.instrument_selector.select_named(
+    #             main,
+    #             request.instrument_names or [],
+    #         )
+
+    #     log("Explorer and instruments selected. No execution has started.")
+    #     return main
+
     def select_existing_explorer(
         self,
         request: ExploreRequest,
     ) -> BaseWrapper:
         """
-        Select an existing Explorer and instruments.
+        Select an existing Explorer without changing instruments.
 
-        This method does not create or run anything.
+        The user must prepare the required instrument selection in
+        MetaStock before requesting the run.
         """
         main = self.app.connect()
         self.console.open(main)
-        self.strategy_selector.select(main, request.strategy_name)
 
-        if request.select_all_instruments:
-            self.instrument_selector.ensure_all_selected(main)
-        else:
-            self.instrument_selector.select_named(
-                main,
-                request.instrument_names or [],
-            )
+        self.strategy_selector.select(
+            main,
+            request.strategy_name,
+        )
 
-        log("Explorer and instruments selected. No execution has started.")
+        # Instrument automation is temporarily disabled.
+        # Preserve the instrument state already present in MetaStock.
+        log(
+            "MetaStock selection step completed. "
+            "Instrument selection was left unchanged."
+        )
+
         return main
 
     def run_selected_until_results_ready(
