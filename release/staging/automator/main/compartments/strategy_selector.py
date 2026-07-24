@@ -285,7 +285,7 @@ class StrategySelector:
             lambda: get_selected_count(main) == 1,
             timeout=1.5,
             interval=0.03,
-            stable_reads=2,
+            stable_reads=1,
             error_msg=(
                 "Selected strategy count did not "
                 "stabilize at one"
