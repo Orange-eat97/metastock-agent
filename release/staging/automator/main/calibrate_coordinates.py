@@ -13,13 +13,21 @@ from ui_interacter.coordinate_calibration import (
 
 APP_TITLE_RE = r"^Main - MetaStock$"
 
-# Coordinate-only boundary: only console-level fallback points are recorded.
-# Strategy and instrument rows remain owned by their stable selectors.
+# Approved coordinate fallback boundary:
+# - console navigation and Start buttons;
+# - one absolute strategy-checkbox point, used only when the filtered
+#   Explorer row and checkbox remain unavailable through UIA for 2 seconds.
+# Instrument and System Tester rows remain selector-owned.
 EXPLORE_ANCHORS = [
     (
         "explore_tab",
         "Click the middle of the word 'Explore' on the left-side "
         "MetaStock navigation.",
+    ),
+    (
+        "strategy_checkbox",
+        "Open the Explore Console and search until exactly one Explorer "
+        "row is visible. Click the centre of that row's checkbox.",
     ),
     (
         "start_exploration",

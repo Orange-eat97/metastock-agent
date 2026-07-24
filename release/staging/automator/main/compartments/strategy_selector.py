@@ -21,6 +21,15 @@ from ui_interacter.state_readers import (
 )
 
 
+STRATEGY_CHECKBOX_CALIBRATION_POINT = (
+    "strategy_checkbox"
+)
+STRATEGY_FILTER_INITIAL_SETTLE_SECONDS = 0.35
+STRATEGY_FILTER_RETRY_DELAY_SECONDS = 0.50
+STRATEGY_FILTER_MAX_UIA_ATTEMPTS = 2
+STRATEGY_CALIBRATED_CLICK_VERIFY_SECONDS = 2.0
+
+
 class StrategySelector:
     """
     Owns strategy selection.
@@ -162,6 +171,82 @@ class StrategySelector:
             x_offset=20,
         )
 
+    def _select_with_calibrated_strategy_checkbox(
+        self,
+        *,
+        main: BaseWrapper,
+        strategy_name: str,
+        cause: Exception,
+    ) -> None:
+        # Last-resort path for WPF states where the filtered row is visible
+        # but neither the ListBoxItem nor its checkbox is exposed by UIA.
+        point_name = (
+            STRATEGY_CHECKBOX_CALIBRATION_POINT
+        )
+
+        selected_before = get_selected_count(main)
+
+        if selected_before != 0:
+            raise RuntimeError(
+                "Cannot use the calibrated strategy-checkbox "
+                "fallback unless Selected: 0 is verified. "
+                f"Actual selected count: {selected_before}"
+            ) from cause
+
+        if not self.actions.has_calibrated_point(
+            point_name
+        ):
+            raise RuntimeError(
+                "No Explorer row or checkbox appeared through "
+                "UIA within 2 seconds, and calibration point "
+                f"{point_name!r} is not available. Re-run "
+                "calibrate_coordinates.py for the active profile."
+            ) from cause
+
+        log(
+            "No Explorer row or checkbox appeared through UIA "
+            "within 2 seconds. Clicking the absolute calibrated "
+            f"strategy checkbox for {strategy_name!r}."
+        )
+
+        self.actions.click_absolute_calibrated_point(
+            point_name=point_name,
+            label=(
+                "filtered Explorer strategy checkbox "
+                f"for {strategy_name!r}"
+            ),
+        )
+
+        try:
+            wait_until(
+                lambda: (
+                    get_selected_count(main) == 1
+                ),
+                timeout=(
+                    STRATEGY_CALIBRATED_CLICK_VERIFY_SECONDS
+                ),
+                interval=0.10,
+                error_msg=(
+                    "Absolute calibrated strategy-checkbox "
+                    "click did not produce Selected: 1"
+                ),
+            )
+        except RuntimeError as click_error:
+            selected_after = get_selected_count(main)
+
+            raise RuntimeError(
+                "No Explorer row or checkbox appeared through "
+                "UIA, and the absolute calibrated strategy "
+                "checkbox click failed verification. "
+                "Expected Selected: 1, "
+                f"actual={selected_after}"
+            ) from click_error
+
+        log(
+            "Absolute calibrated strategy-checkbox click "
+            "produced Selected: 1."
+        )
+
     def select_by_search(
         self,
         main: BaseWrapper,
@@ -173,9 +258,10 @@ class StrategySelector:
         1. Clear old search.
         2. Reset Selected count to zero.
         3. Search for the target strategy.
-        4. Wait for at least one stable filtered row.
-        5. Select the first returned row.
-        6. Require Selected count to become exactly one.
+        4. Resolve the strategy List once.
+        5. Use at most two UIA reads and accept only one unique row.
+        6. Fall back to the calibrated checkbox if UIA cannot select.
+        7. Require Selected count to become exactly one.
         """
         log(
             "Selecting strategy with clean-state workflow: "
@@ -197,52 +283,114 @@ class StrategySelector:
         )
 
         log(
-            "Waiting for MetaStock Explorer search results..."
+            "Waiting for a unique MetaStock Explorer search result..."
         )
 
-        def first_filtered_target_ready():
-            try:
-                rows = (
-                    self.selectors
-                    .find_filtered_strategy_rows(main)
+        filtered_target = None
+        strategy_list = None
+        last_row_count: int | None = None
+        last_error: Exception | None = None
+
+        try:
+            strategy_list = (
+                self.selectors.find_strategy_list_view(
+                    main
                 )
+            )
+        except Exception as exc:
+            last_error = exc
+            log(
+                "Strategy-list discovery failed before the "
+                "bounded UIA reads: "
+                f"{type(exc).__name__}: {exc}"
+            )
 
-                if rows:
-                    return (
-                        "row",
-                        rows[0],
+        if strategy_list is not None:
+            time.sleep(
+                STRATEGY_FILTER_INITIAL_SETTLE_SECONDS
+            )
+
+            for attempt in range(
+                1,
+                STRATEGY_FILTER_MAX_UIA_ATTEMPTS + 1,
+            ):
+                try:
+                    rows = (
+                        self.selectors
+                        .find_filtered_strategy_rows(
+                            main,
+                            list_view=strategy_list,
+                        )
+                    )
+                    last_row_count = len(rows)
+
+                    if last_row_count == 1:
+                        filtered_target = (
+                            "row",
+                            rows[0],
+                        )
+                        log(
+                            "Explorer search produced one unique "
+                            f"UIA row on attempt {attempt}."
+                        )
+                        break
+
+                    if last_row_count == 0:
+                        checkbox = (
+                            self.selectors
+                            .find_first_filtered_strategy_checkbox(
+                                main,
+                                list_view=strategy_list,
+                            )
+                        )
+
+                        if checkbox is not None:
+                            filtered_target = (
+                                "checkbox",
+                                checkbox,
+                            )
+                            log(
+                                "Explorer search exposed one "
+                                "checkbox but no ListBoxItem row."
+                            )
+                            break
+
+                    log(
+                        "Explorer UIA result is not uniquely "
+                        f"selectable on attempt {attempt}: "
+                        f"row_count={last_row_count}."
                     )
 
-                checkbox = (
-                    self.selectors
-                    .find_first_filtered_strategy_checkbox(
-                        main
-                    )
-                )
-
-                if checkbox is not None:
-                    return (
-                        "checkbox",
-                        checkbox,
+                except Exception as exc:
+                    last_error = exc
+                    log(
+                        "Explorer UIA result read failed on "
+                        f"attempt {attempt}: "
+                        f"{type(exc).__name__}: {exc}"
                     )
 
-                return None
+                if (
+                    attempt
+                    < STRATEGY_FILTER_MAX_UIA_ATTEMPTS
+                ):
+                    time.sleep(
+                        STRATEGY_FILTER_RETRY_DELAY_SECONDS
+                    )
 
-            except Exception:
-                return None
-
-        # Require several successful reads so the WPF result has
-        # materialized. Always select the first visible result row.
-        filtered_target = wait_until_stable(
-            first_filtered_target_ready,
-            timeout=self.search_filter_timeout,
-            interval=0.10,
-            stable_reads=1,
-            error_msg=(
-                "No Explorer row or checkbox appeared "
-                "after searching"
-            ),
-        )
+        if filtered_target is None:
+            details = (
+                "UIA did not produce exactly one Explorer row "
+                "or one usable checkbox after the bounded "
+                "attempts. "
+                f"last_row_count={last_row_count}, "
+                f"last_error={last_error!r}"
+            )
+            self._select_with_calibrated_strategy_checkbox(
+                main=main,
+                strategy_name=strategy_name,
+                cause=RuntimeError(details),
+            )
+            return
 
         # Let the checkbox hit target settle after the last list update.
         time.sleep(0.25)
@@ -281,16 +429,45 @@ class StrategySelector:
                 row=target_control,
             )
 
-        wait_until_stable(
-            lambda: get_selected_count(main) == 1,
-            timeout=1.5,
-            interval=0.03,
-            stable_reads=1,
-            error_msg=(
-                "Selected strategy count did not "
-                "stabilize at one"
-            ),
-        )
+        try:
+            wait_until_stable(
+                lambda: get_selected_count(main) == 1,
+                timeout=1.5,
+                interval=0.03,
+                stable_reads=1,
+                error_msg=(
+                    "Selected strategy count did not "
+                    "stabilize at one"
+                ),
+            )
+        except RuntimeError as click_error:
+            selected_after_uia_click = (
+                get_selected_count(main)
+            )
+
+            if selected_after_uia_click == 1:
+                log(
+                    "UIA click produced Selected: 1 despite "
+                    "the verification wait ending with an error."
+                )
+            elif selected_after_uia_click == 0:
+                log(
+                    "UIA target click did not select an Explorer. "
+                    "Using the absolute calibrated checkbox as "
+                    "the final fallback."
+                )
+                self._select_with_calibrated_strategy_checkbox(
+                    main=main,
+                    strategy_name=strategy_name,
+                    cause=click_error,
+                )
+                return
+            else:
+                raise RuntimeError(
+                    "UIA target click left an unsafe selected "
+                    "strategy count. Expected 0 or 1, "
+                    f"actual={selected_after_uia_click}"
+                ) from click_error
 
         selected_after = get_selected_count(main)
 

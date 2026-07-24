@@ -91,6 +91,38 @@ class UiActions:
             point_name=point_name,
         )
 
+    def click_absolute_calibrated_point(
+        self,
+        *,
+        point_name: str,
+        label: str,
+    ) -> None:
+        # Click the exact absolute screen coordinate recorded for this
+        # named calibration point. No scaling or translation is applied.
+        if not self.has_calibrated_point(point_name):
+            raise RuntimeError(
+                "Required absolute calibration point is missing: "
+                f"{point_name!r}"
+            )
+
+        if self.coordinate_mapper is None:
+            raise RuntimeError(
+                "No coordinate calibration profile is loaded."
+            )
+
+        point = self.coordinate_mapper.profile.points[
+            point_name
+        ]
+
+        self.click_point(
+            int(point.absolute_x),
+            int(point.absolute_y),
+            label=(
+                f"{label} [absolute calibrated: "
+                f"{point_name}]"
+            ),
+        )
+
     def click_point(
         self,
         x: int,

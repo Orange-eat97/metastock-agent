@@ -68,14 +68,20 @@ def build_shared_components():
         - MetaStockApp
         - ExploreConsole
     """
+    coordinate_mapper = (
+        load_coordinate_mapper_from_env()
+    )
+
     actions = UiActions(
         click_settle_delay=0.03,
         text_settle_delay=0.08,
         key_delay=0.01,
-        coordinate_mapper=load_coordinate_mapper_from_env(),
+        coordinate_mapper=coordinate_mapper,
     )
 
-    selectors = ExploreSelectors()
+    selectors = ExploreSelectors(
+        coordinate_mapper=coordinate_mapper,
+    )
 
     app = MetaStockApp(
         app_title_re=APP_TITLE_RE,

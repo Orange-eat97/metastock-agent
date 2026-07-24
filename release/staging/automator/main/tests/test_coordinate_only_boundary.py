@@ -23,11 +23,12 @@ class CoordinateOnlyBoundaryTests(unittest.TestCase):
 
         self.fail(f"Function {function_name!r} was not found")
 
-    def test_calibrator_records_console_points_only(self) -> None:
+    def test_calibrator_records_approved_fallback_points(self) -> None:
         source = self.read("calibrate_coordinates.py")
 
         for expected in (
             '"explore_tab"',
+            '"strategy_checkbox"',
             '"start_exploration"',
             '"system_test_tab"',
             '"start_system_test"',
@@ -35,7 +36,6 @@ class CoordinateOnlyBoundaryTests(unittest.TestCase):
             self.assertIn(expected, source)
 
         for forbidden in (
-            "strategy_checkbox",
             "instruments_checkbox",
             "system_test_checkbox",
         ):
@@ -49,9 +49,41 @@ class CoordinateOnlyBoundaryTests(unittest.TestCase):
         self.assertNotIn("calibrat", source.casefold())
         self.assertIn("rectangle.left + x_offset", source)
 
-    def test_strategy_and_instrument_selectors_are_not_calibration_aware(self) -> None:
+    def test_strategy_selection_uses_calibrated_anchor_and_fallback(self) -> None:
+        selector_source = self.read(
+            "compartments/strategy_selector.py"
+        )
+        locator_source = self.read(
+            "ui_interacter/explore_selectors.py"
+        )
+
+        self.assertIn(
+            '"strategy_checkbox"',
+            selector_source,
+        )
+        self.assertIn(
+            "click_absolute_calibrated_point",
+            selector_source,
+        )
+        self.assertIn(
+            "STRATEGY_FILTER_MAX_UIA_ATTEMPTS = 2",
+            selector_source,
+        )
+        self.assertIn(
+            "last_row_count == 1",
+            selector_source,
+        )
+        self.assertIn(
+            "_find_strategy_list_from_calibrated_anchor",
+            locator_source,
+        )
+        self.assertIn(
+            "list_view: Optional[BaseWrapper] = None",
+            locator_source,
+        )
+
+    def test_other_row_selectors_are_not_calibration_aware(self) -> None:
         for relative_path in (
-            "compartments/strategy_selector.py",
             "compartments/instrument_selector.py",
             "compartments/system_test_selector.py",
         ):

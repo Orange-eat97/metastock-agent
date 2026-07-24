@@ -7,11 +7,22 @@ from typing import Optional
 from pywinauto import Desktop
 from pywinauto.base_wrapper import BaseWrapper
 
+from ui_interacter.coordinate_calibration import CoordinateMapper
 from ui_interacter.ui_core import normalize_text, safe_descendants, log
 from ui_interacter.state_readers import parse_selected_total_text
 
 
 class ExploreSelectors:
+    STRATEGY_CHECKBOX_POINT = "strategy_checkbox"
+
+    def __init__(
+        self,
+        coordinate_mapper: Optional[
+            CoordinateMapper
+        ] = None,
+    ) -> None:
+        self.coordinate_mapper = coordinate_mapper
+
     def find_text_control_fuzzy(
         self,
         root: BaseWrapper,
@@ -108,36 +119,259 @@ class ExploreSelectors:
 
         raise RuntimeError("Could not find SearchComboBox in Explore Console.")
 
-    def find_strategy_list_view(self, main: BaseWrapper) -> BaseWrapper:
-        log("Searching for strategy list view...")
+    def _resolve_strategy_checkbox_anchor(
+        self,
+        main: BaseWrapper,
+    ) -> Optional[tuple[int, int]]:
+        mapper = self.coordinate_mapper
 
-        list_views = safe_descendants(main, control_type="List")
-        candidates = []
+        if mapper is None:
+            return None
 
-        for lv in list_views:
+        if (
+            self.STRATEGY_CHECKBOX_POINT
+            not in mapper.profile.points
+        ):
+            return None
+
+        return mapper.resolve(
+            main=main,
+            point_name=(
+                self.STRATEGY_CHECKBOX_POINT
+            ),
+        )
+
+    def _find_strategy_list_from_calibrated_anchor(
+        self,
+        main: BaseWrapper,
+        anchor: tuple[int, int],
+    ) -> Optional[BaseWrapper]:
+        """
+        Locate the visible strategy List that contains the calibrated
+        strategy-checkbox point.
+
+        The calibrated checkbox lies in the first visible Explorer row,
+        close to the list's top-left corner. Candidate ranking therefore
+        uses candidate-relative distances rather than fixed desktop
+        thresholds such as left < 750.
+        """
+        anchor_x, anchor_y = anchor
+        candidates: list[
+            tuple[
+                float,
+                int,
+                int,
+                int,
+                BaseWrapper,
+            ]
+        ] = []
+
+        log(
+            "Using calibrated strategy-checkbox anchor "
+            f"for list discovery at ({anchor_x},{anchor_y})."
+        )
+
+        for list_view in safe_descendants(
+            main,
+            control_type="List",
+        ):
             try:
-                r = lv.rectangle()
-                name = normalize_text(lv.element_info.name or "")
-                text = normalize_text(lv.window_text())
+                rectangle = list_view.rectangle()
+                width = int(rectangle.width())
+                height = int(rectangle.height())
 
-                # Strategy list is large and on the left side.
-                if r.width() > 250 and r.height() > 120 and r.left < 750:
-                    candidates.append((r.top, r.left, lv, name, text, r))
+                if width <= 0 or height <= 0:
+                    continue
+
+                if not (
+                    rectangle.left
+                    <= anchor_x
+                    <= rectangle.right
+                    and rectangle.top
+                    <= anchor_y
+                    <= rectangle.bottom
+                ):
+                    continue
+
+                try:
+                    if not list_view.is_visible():
+                        continue
+                except Exception:
+                    pass
+
+                try:
+                    if bool(
+                        getattr(
+                            list_view.element_info,
+                            "offscreen",
+                            False,
+                        )
+                    ):
+                        continue
+                except Exception:
+                    pass
+
+                relative_x = (
+                    anchor_x - rectangle.left
+                ) / max(width, 1)
+                relative_y = (
+                    anchor_y - rectangle.top
+                ) / max(height, 1)
+                normalized_edge_distance = (
+                    relative_x + relative_y
+                )
+                area = width * height
+
+                candidates.append(
+                    (
+                        normalized_edge_distance,
+                        area,
+                        int(rectangle.top),
+                        int(rectangle.left),
+                        list_view,
+                    )
+                )
+
+                log(
+                    "  calibrated strategy List candidate: "
+                    f"rect=({rectangle.left},"
+                    f"{rectangle.top},"
+                    f"{rectangle.right},"
+                    f"{rectangle.bottom}), "
+                    f"anchor_relative="
+                    f"({relative_x:.3f},"
+                    f"{relative_y:.3f}), "
+                    f"area={area}"
+                )
             except Exception:
                 continue
 
         if not candidates:
-            raise RuntimeError("Could not find strategy list view.")
+            return None
 
-        candidates.sort(key=lambda x: (x[0], x[1]))
+        candidates.sort(
+            key=lambda item: (
+                item[0],
+                item[1],
+                item[2],
+                item[3],
+            )
+        )
 
-        chosen = candidates[0][2]
-        r = chosen.rectangle()
+        chosen = candidates[0][4]
+        rectangle = chosen.rectangle()
 
-        log(f"Using strategy list view rect=({r.left},{r.top},{r.right},{r.bottom})")
+        log(
+            "Using calibrated strategy list view "
+            f"rect=({rectangle.left},"
+            f"{rectangle.top},"
+            f"{rectangle.right},"
+            f"{rectangle.bottom})"
+        )
         return chosen
 
-    def find_filtered_strategy_rows(self, main: BaseWrapper) -> list[BaseWrapper]:
+    def find_strategy_list_view(
+        self,
+        main: BaseWrapper,
+    ) -> BaseWrapper:
+        log("Searching for strategy list view...")
+
+        try:
+            calibrated_anchor = (
+                self._resolve_strategy_checkbox_anchor(
+                    main
+                )
+            )
+        except Exception as exc:
+            calibrated_anchor = None
+            log(
+                "Could not resolve calibrated strategy anchor: "
+                f"{type(exc).__name__}: {exc}"
+            )
+
+        if calibrated_anchor is not None:
+            calibrated_list = (
+                self._find_strategy_list_from_calibrated_anchor(
+                    main,
+                    calibrated_anchor,
+                )
+            )
+
+            if calibrated_list is not None:
+                return calibrated_list
+
+            log(
+                "No visible List contained the calibrated "
+                "strategy-checkbox anchor. Falling back to "
+                "the legacy geometry heuristic."
+            )
+
+        list_views = safe_descendants(
+            main,
+            control_type="List",
+        )
+        candidates = []
+
+        for list_view in list_views:
+            try:
+                rectangle = list_view.rectangle()
+                name = normalize_text(
+                    list_view.element_info.name
+                    or ""
+                )
+                text = normalize_text(
+                    list_view.window_text()
+                )
+
+                # Backward compatibility only. Calibrated profiles use the
+                # anchor-containing List path above.
+                if (
+                    rectangle.width() > 250
+                    and rectangle.height() > 120
+                    and rectangle.left < 750
+                ):
+                    candidates.append(
+                        (
+                            rectangle.top,
+                            rectangle.left,
+                            list_view,
+                            name,
+                            text,
+                            rectangle,
+                        )
+                    )
+            except Exception:
+                continue
+
+        if not candidates:
+            raise RuntimeError(
+                "Could not find strategy list view."
+            )
+
+        candidates.sort(
+            key=lambda item: (
+                item[0],
+                item[1],
+            )
+        )
+
+        chosen = candidates[0][2]
+        rectangle = chosen.rectangle()
+
+        log(
+            "Using legacy strategy list view "
+            f"rect=({rectangle.left},"
+            f"{rectangle.top},"
+            f"{rectangle.right},"
+            f"{rectangle.bottom})"
+        )
+        return chosen
+
+    def find_filtered_strategy_rows(
+        self,
+        main: BaseWrapper,
+        list_view: Optional[BaseWrapper] = None,
+    ) -> list[BaseWrapper]:
         """
         Find strategy ListBoxItem rows after the search filter is applied.
 
@@ -151,7 +385,11 @@ class ExploreSelectors:
 
         The searched display name, e.g. '#Stoch and RSI', is not exposed as row text.
         """
-        list_view = self.find_strategy_list_view(main)
+        if list_view is None:
+            list_view = self.find_strategy_list_view(
+                main
+            )
+
         list_rect = list_view.rectangle()
 
         candidates: list[tuple[int, int, int, BaseWrapper, str]] = []
@@ -262,6 +500,7 @@ class ExploreSelectors:
     def find_first_filtered_strategy_checkbox(
         self,
         main: BaseWrapper,
+        list_view: Optional[BaseWrapper] = None,
     ) -> Optional[BaseWrapper]:
         """
         Find the first visible Explorer-result checkbox.
@@ -272,7 +511,11 @@ class ExploreSelectors:
         tree, so search for checkboxes whose centre lies inside the
         strategy-list rectangle.
         """
-        list_view = self.find_strategy_list_view(main)
+        if list_view is None:
+            list_view = self.find_strategy_list_view(
+                main
+            )
+
         list_rect = list_view.rectangle()
 
         candidates: list[
