@@ -128,6 +128,8 @@ def build_workflow(max_execution_wait_sec: int) -> ExploreWorkflow:
     result_scraper = ExplorationResultScraper(
         page_load_delay=0.35,
         max_stale_pages=4,
+        coordinate_mapper=actions.coordinate_mapper,
+        result_row_fallback_delay=3.0,
     )
 
     clipboard_verifier = ClipboardResultVerifier(

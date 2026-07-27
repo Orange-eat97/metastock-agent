@@ -30,6 +30,7 @@ class CoordinateOnlyBoundaryTests(unittest.TestCase):
             '"explore_tab"',
             '"strategy_checkbox"',
             '"start_exploration"',
+            '"result_first_row"',
             '"system_test_tab"',
             '"start_system_test"',
         ):
@@ -97,7 +98,6 @@ class CoordinateOnlyBoundaryTests(unittest.TestCase):
         for relative_path in (
             "compartments/explore_workflow.py",
             "compartments/system_test_workflow.py",
-            "compartments/result_scraper.py",
             "compartments/result_capture.py",
         ):
             self.assertNotIn(
@@ -105,6 +105,52 @@ class CoordinateOnlyBoundaryTests(unittest.TestCase):
                 self.read(relative_path).casefold(),
                 relative_path,
             )
+
+    def test_result_row_calibration_is_result_window_relative(self) -> None:
+        calibrator = self.read(
+            "calibrate_coordinates.py"
+        )
+        scraper_method = self.function_source(
+            "compartments/result_scraper.py",
+            "_click_result_window_relative_calibrated_first_row",
+        )
+
+        self.assertIn(
+            "result_window.rectangle()",
+            calibrator,
+        )
+        self.assertIn(
+            "absolute_x - int(rectangle.left)",
+            calibrator,
+        )
+        self.assertIn(
+            "absolute_y - int(rectangle.top)",
+            calibrator,
+        )
+        self.assertIn(
+            "execution_window.rectangle()",
+            scraper_method,
+        )
+        self.assertIn(
+            "point.window_relative_x",
+            scraper_method,
+        )
+        self.assertIn(
+            "point.window_relative_y",
+            scraper_method,
+        )
+        self.assertNotIn(
+            "point.absolute_x",
+            scraper_method,
+        )
+        self.assertNotIn(
+            "point.absolute_y",
+            scraper_method,
+        )
+        self.assertNotIn(
+            ".resolve(",
+            scraper_method,
+        )
 
     def test_console_fallbacks_name_their_calibrated_points(self) -> None:
         explorer = self.read("compartments/explore_console.py")

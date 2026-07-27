@@ -10,7 +10,9 @@ from typing import Any, Optional
 import pyperclip
 from pywinauto.base_wrapper import BaseWrapper
 from pywinauto.keyboard import send_keys
+from pywinauto.mouse import click as mouse_click
 
+from ui_interacter.coordinate_calibration import CoordinateMapper
 from ui_interacter.ui_core import (
     log,
     normalize_text,
@@ -24,6 +26,8 @@ RESULTS_TAB_RE = re.compile(
 )
 
 RESULTS_GRID_AUTOMATION_ID = "ResultsGridControl"
+RESULT_FIRST_ROW_CALIBRATION_POINT = "result_first_row"
+RESULT_FIRST_ROW_FALLBACK_DELAY_SECONDS = 3.0
 
 
 @dataclass(frozen=True)
@@ -85,6 +89,10 @@ class ExplorationResultScraper:
         poll_interval: float = 0.04,
         clipboard_timeout: float = 5.0,
         preserve_existing_clipboard: bool = True,
+        coordinate_mapper: Optional[CoordinateMapper] = None,
+        result_row_fallback_delay: float = (
+            RESULT_FIRST_ROW_FALLBACK_DELAY_SECONDS
+        ),
     ) -> None:
         # Preserve the old constructor contract. The paging arguments
         # remain accepted because existing composition code passes them.
@@ -108,6 +116,11 @@ class ExplorationResultScraper:
         )
         self.preserve_existing_clipboard = bool(
             preserve_existing_clipboard
+        )
+        self.coordinate_mapper = coordinate_mapper
+        self.result_row_fallback_delay = max(
+            float(result_row_fallback_delay),
+            0.0,
         )
 
     def scrape(
@@ -309,10 +322,17 @@ class ExplorationResultScraper:
         list[ExplorationResultRow],
     ]:
         previous_clipboard = self._read_clipboard_safely()
-        deadline = time.monotonic() + self.clipboard_timeout
+        started_at = time.monotonic()
+        deadline = started_at + self.clipboard_timeout
+        fallback_at = (
+            started_at
+            + self.result_row_fallback_delay
+        )
         last_error: Exception | None = None
         last_row_count: int | None = None
         attempt = 0
+        result_row_fallback_attempted = False
+        result_row_fallback_active = False
 
         try:
             while time.monotonic() < deadline:
@@ -324,20 +344,41 @@ class ExplorationResultScraper:
 
                 try:
                     pyperclip.copy(sentinel)
+                    now = time.monotonic()
 
-                    self._activate_results_grid(
-                        execution_window=execution_window,
-                        grid=grid,
-                    )
+                    if (
+                        not result_row_fallback_attempted
+                        and now >= fallback_at
+                    ):
+                        result_row_fallback_attempted = True
+                        result_row_fallback_active = (
+                            self._click_result_window_relative_calibrated_first_row(
+                                execution_window=execution_window,
+                            )
+                        )
+
+                    if not result_row_fallback_active:
+                        self._activate_results_grid(
+                            execution_window=execution_window,
+                            grid=grid,
+                        )
 
                     send_keys("^a", pause=0.05)
                     time.sleep(self.event_dispatch_delay)
                     send_keys("^c", pause=0.05)
 
+                    copy_wait_deadline = deadline
+
+                    if not result_row_fallback_attempted:
+                        copy_wait_deadline = min(
+                            deadline,
+                            fallback_at,
+                        )
+
                     clipboard_text = (
                         self._wait_for_copied_table_text(
                             sentinel=sentinel,
-                            deadline=deadline,
+                            deadline=copy_wait_deadline,
                         )
                     )
 
@@ -378,8 +419,71 @@ class ExplorationResultScraper:
             f"{self.clipboard_timeout:.1f} seconds. "
             f"Expected rows={expected_count}, "
             f"last copied rows={last_row_count}, "
+            f"result-row fallback attempted="
+            f"{result_row_fallback_attempted}, "
             f"last error={last_error}"
         )
+
+    def _click_result_window_relative_calibrated_first_row(
+        self,
+        *,
+        execution_window: BaseWrapper,
+    ) -> bool:
+        # Use an exact pixel offset from the current result window.
+        # Do not normalize, scale, or call CoordinateMapper.resolve().
+        mapper = self.coordinate_mapper
+
+        if mapper is None:
+            log(
+                "Result first-row fallback is unavailable because no "
+                "calibration profile is loaded."
+            )
+            return False
+
+        point = mapper.profile.points.get(
+            RESULT_FIRST_ROW_CALIBRATION_POINT
+        )
+
+        if point is None:
+            log(
+                "Result first-row fallback is unavailable because the "
+                "active profile has no 'result_first_row' point."
+            )
+            return False
+
+        rectangle = execution_window.rectangle()
+        offset_x = int(point.window_relative_x)
+        offset_y = int(point.window_relative_y)
+        x = int(rectangle.left) + offset_x
+        y = int(rectangle.top) + offset_y
+
+        if not (
+            rectangle.left <= x <= rectangle.right
+            and rectangle.top <= y <= rectangle.bottom
+        ):
+            log(
+                "Result first-row fallback is unavailable because the "
+                "stored result-window-relative offset falls outside the "
+                "current Exploration Execution window. Re-run calibration."
+            )
+            return False
+
+        log(
+            "Three seconds passed without a complete result-table "
+            "selection. Clicking the calibrated first result row once "
+            "relative to the result window: "
+            f"offset=({offset_x},{offset_y}), absolute=({x},{y}); "
+            "then selecting all."
+        )
+
+        mouse_click(
+            button="left",
+            coords=(x, y),
+        )
+        time.sleep(
+            max(self.event_dispatch_delay, 0.05)
+        )
+        return True
 
     def _activate_results_grid(
         self,

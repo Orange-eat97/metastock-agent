@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 from pathlib import Path
 from typing import Sequence
 
+from compartments.execution_monitor import ExecutionMonitor
 from compartments.metastock_app import MetaStockApp
 from ui_interacter.coordinate_calibration import (
     CalibrationStore,
@@ -33,6 +35,12 @@ EXPLORE_ANCHORS = [
         "start_exploration",
         "Open the Explore Console, then click the middle of the "
         "'Start Exploration' button.",
+    ),
+    (
+        "result_first_row",
+        "Run an Explorer until the completed result window is visible, "
+        "then click the centre of the first result data row. This point "
+        "is stored as an exact pixel offset from the result window.",
     ),
 ]
 
@@ -83,6 +91,71 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _rebase_result_first_row_to_result_window(
+    *,
+    profile,
+    main_window,
+    store: CalibrationStore,
+):
+    # Reinterpret window_relative_x/y as exact pixel offsets from the
+    # Exploration Execution result window. Runtime ignores normalized values.
+    point = profile.points.get("result_first_row")
+
+    if point is None:
+        return profile
+
+    result_window = ExecutionMonitor(
+        max_execution_wait_sec=1,
+        poll_interval=0.1,
+    ).find_execution_window_inside_main(
+        main_window
+    )
+
+    if result_window is None:
+        raise RuntimeError(
+            "The result_first_row point was recorded, but no open "
+            "Exploration Execution result window could be found. "
+            "Leave the completed result window open while calibrating."
+        )
+
+    rectangle = result_window.rectangle()
+    absolute_x = int(point.absolute_x)
+    absolute_y = int(point.absolute_y)
+
+    if not (
+        rectangle.left <= absolute_x <= rectangle.right
+        and rectangle.top <= absolute_y <= rectangle.bottom
+    ):
+        raise RuntimeError(
+            "The recorded result_first_row point is outside the "
+            "Exploration Execution result window. Re-run calibration "
+            "and click the first actual result row."
+        )
+
+    offset_x = absolute_x - int(rectangle.left)
+    offset_y = absolute_y - int(rectangle.top)
+
+    corrected_point = replace(
+        point,
+        window_relative_x=offset_x,
+        window_relative_y=offset_y,
+    )
+    corrected_points = dict(profile.points)
+    corrected_points["result_first_row"] = corrected_point
+    corrected_profile = replace(
+        profile,
+        points=corrected_points,
+    )
+    store.save(corrected_profile)
+
+    print(
+        "[Calibration] Stored 'result_first_row' relative to the "
+        "Exploration Execution window: "
+        f"offset=({offset_x}, {offset_y})."
+    )
+    return corrected_profile
+
+
 def run_calibration(
     *,
     profile_name: str = "default",
@@ -120,6 +193,11 @@ def run_calibration(
         main=main_window,
         profile_name=profile_name,
         anchors=ANCHORS_BY_MODE[mode],
+    )
+    profile = _rebase_result_first_row_to_result_window(
+        profile=profile,
+        main_window=main_window,
+        store=store,
     )
     store.set_active_profile(
         profile.profile_name
