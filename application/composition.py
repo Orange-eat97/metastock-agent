@@ -63,6 +63,9 @@ from tools.explorer_tools import (
 from tools.result_tools import (
     MetaStockResultToolService,
 )
+from tools.system_test_tools import (
+    SystemTestToolService,
+)
 from tools.tool_registry import ToolRegistry
 
 
@@ -164,9 +167,15 @@ def build_business_dependencies(
         automator_client=automator_client,
         result_client=rag_client,
     )
+    system_test_tools = SystemTestToolService(
+        rag_client=rag_client
+    )
     registry = ToolRegistry(
         explorer_tool_service=explorer_tools,
         result_tool_service=result_tools,
+        system_test_tool_service=(
+            system_test_tools
+        ),
     )
 
     return BusinessDependencies(

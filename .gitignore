@@ -20,3 +20,35 @@ __pycache__/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Embedded beta credentials
+release/release.env
+
+# Release build outputs
+build/
+dist/
+
+# Virtual environments
+.venv/
+.release-venv/
+
+# Release staging is committed.
+release/staging/**/__pycache__/
+release/staging/**/*.py[cod]
+release/staging/**/.pytest_cache/
+release/staging/**/*.log
+release/staging/**/*.bak
+release/staging/**/*.bak_*
+release/staging/**/.env
+release/staging/**/.env.*
+
+# Never commit release secrets.
+release/release.env
+
+# Python cache
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Timestamped patch backups
+*.bak.*

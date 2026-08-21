@@ -15,6 +15,7 @@ ActionKind = Literal[
     "command",
 ]
 COMMAND_ACTION_NAME = "execute_explorer_command"
+SEQUENCE_ACTION_NAME = "execute_explorer_sequence"
 
 
 class RegistryCatalogProtocol(Protocol):
@@ -121,6 +122,74 @@ DIRECT_ACTION_SCHEMAS: dict[str, dict[str, Any]] = {
         },
         "additionalProperties": False,
     },
+    "prepare_explorer_upload": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": False,
+    },
+    "get_explorer_upload_template": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": False,
+    },
+    "upload_explorer": {
+        "type": "object",
+        "properties": {
+            "draft_id": {
+                "type": "string",
+            },
+            "name": {
+                "type": "string",
+            },
+            "description": {
+                "type": "string",
+            },
+            "columns": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "col_letter": {
+                            "type": "string",
+                        },
+                        "col_code": {
+                            "type": "string",
+                        },
+                    },
+                    "required": [
+                        "col_letter",
+                        "col_code",
+                    ],
+                    "additionalProperties": False,
+                },
+            },
+            "filter_code": {
+                "type": "string",
+            },
+            "assumptions": {
+                "type": "array",
+                "items": {
+                    "type": "string",
+                },
+            },
+            "frontend_errors": {
+                "type": "array",
+                "items": {
+                    "type": "string",
+                },
+            },
+        },
+        "required": [
+            "draft_id",
+            "name",
+            "description",
+            "columns",
+            "filter_code",
+            "assumptions",
+            "frontend_errors",
+        ],
+        "additionalProperties": False,
+    },
 }
 
 
@@ -132,6 +201,7 @@ LIFECYCLE_TOOL_NAMES = {
     "select_explorer_in_metastock",
     "run_selected_explorer_in_metastock",
     "read_metastock_explorer_results",
+    "convert_explorer_to_system_test",
 }
 
 
@@ -148,6 +218,13 @@ def _command_schema(
 
     if "repair_explorer" in enabled_tool_names:
         artifact_actions.append("repair")
+
+    system_test_actions = ["none"]
+    if (
+        "convert_explorer_to_system_test"
+        in enabled_tool_names
+    ):
+        system_test_actions.append("convert")
 
     metastock_actions = ["none"]
 
@@ -185,6 +262,16 @@ def _command_schema(
                     "request; revise intentionally changes an existing "
                     "Explorer; repair fixes syntax or contract errors; none "
                     "uses the existing referenced Explorer unchanged."
+                ),
+            },
+            "system_test_action": {
+                "type": "string",
+                "enum": system_test_actions,
+                "description": (
+                    "convert turns one existing validated "
+                    "stored Explorer into a long-only "
+                    "System Test for manual entry. Use "
+                    "none for all other requests."
                 ),
             },
             "explorer_reference": EXPLORER_REFERENCE_SCHEMA,
@@ -236,9 +323,68 @@ def _command_schema(
         },
         "required": [
             "artifact_action",
+            "system_test_action",
             "metastock_action",
             "result_action",
         ],
+        "additionalProperties": False,
+    }
+
+
+def _sequence_schema(
+    enabled_tool_names: set[str],
+) -> dict[str, Any]:
+    create_available = (
+        "create_explorer_in_metastock" in enabled_tool_names
+    )
+    create_property: dict[str, Any] = {
+        "type": "boolean",
+        "description": (
+            "Create this stored Explorer in MetaStock before selecting and "
+            "running it. Leave false when it already exists in MetaStock."
+        ),
+        "default": False,
+    }
+    if not create_available:
+        create_property["enum"] = [False]
+
+    return {
+        "type": "object",
+        "properties": {
+            "stages": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 10,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "explorer_reference": EXPLORER_REFERENCE_SCHEMA,
+                        "instruments": {
+                            "type": "string",
+                            "description": (
+                                "Exact MetaStock instrument, exchange, or "
+                                "custom-list labels for this stage. Use 'all' "
+                                "when no narrower universe was requested."
+                            ),
+                            "default": "all",
+                        },
+                        "create_in_metastock": create_property,
+                    },
+                    "required": ["explorer_reference"],
+                    "additionalProperties": False,
+                },
+            },
+            "stop_on_failure": {
+                "type": "boolean",
+                "enum": [True],
+                "default": True,
+                "description": (
+                    "The MVP always stops before later stages when one "
+                    "MetaStock action fails."
+                ),
+            },
+        },
+        "required": ["stages"],
         "additionalProperties": False,
     }
 
@@ -290,6 +436,28 @@ def build_conversation_actions(
             )
         )
 
+    sequence_tools = {
+        "select_explorer_in_metastock",
+        "run_selected_explorer_in_metastock",
+        "read_metastock_explorer_results",
+    }
+    if sequence_tools.issubset(enabled_names):
+        actions.append(
+            ConversationActionDefinition(
+                name=SEQUENCE_ACTION_NAME,
+                description=(
+                    "Run two or more Explorers sequentially. Every stage has "
+                    "its own Explorer reference and instrument universe. Each "
+                    "stage selects, runs, captures, persists, and closes its "
+                    "result before the next stage starts. Optionally create a "
+                    "stored Explorer in MetaStock first. Never feed one "
+                    "stage's matched symbols into the next stage."
+                ),
+                kind="command",
+                parameters=_sequence_schema(enabled_names),
+            )
+        )
+
     if enabled_names.intersection(LIFECYCLE_TOOL_NAMES):
         actions.append(
             ConversationActionDefinition(
@@ -297,8 +465,9 @@ def build_conversation_actions(
                 description=(
                     "Resolve and execute one complete Explorer lifecycle "
                     "command. Use this single function for generation, "
-                    "revision, repair, MetaStock creation, running, and fresh "
-                    "result capture, including compound requests. Keep these "
+                    "revision, repair, System Test conversion, MetaStock "
+                    "creation, running, and fresh result capture, including "
+                    "compound requests. Keep these "
                     "intent dimensions separate in the arguments."
                 ),
                 kind="command",

@@ -81,6 +81,7 @@ class ExplorerViewModel:
     revision_instruction: str | None = None
     updated_at: str | None = None
     manual_edit_version: int = 0
+    is_transient: bool = False
 
 
 @dataclass

@@ -10,6 +10,7 @@ from orchestration.command_resolution import (
     MetaStockAction,
     NormalizedExplorerCommand,
     ResultAction,
+    SystemTestAction,
 )
 
 
@@ -119,6 +120,19 @@ class StaticWorkflowCatalog:
         steps: list[WorkflowStep] = []
         downstream_source: ExplorerSource = "original"
 
+        if (
+            command.system_test_action
+            is SystemTestAction.CONVERT
+        ):
+            steps.append(
+                WorkflowStep(
+                    tool_name=(
+                        "convert_explorer_to_system_test"
+                    ),
+                    explorer_source="original",
+                )
+            )
+
         if command.artifact_action is ArtifactAction.GENERATE:
             steps.append(
                 WorkflowStep(
@@ -222,6 +236,9 @@ class StaticWorkflowCatalog:
                 "resolved_instruction": (
                     command.resolved_instruction
                 ),
+                "system_test_action": (
+                    command.system_test_action.value
+                ),
                 "instruments": command.instruments,
             },
         )
@@ -235,9 +252,10 @@ class StaticWorkflowCatalog:
         return WorkflowStep(
             tool_name=tool_name,
             explorer_source=explorer_source,
-            argument_bindings={
-                "instruments": "instruments"
-            },
+            #instrument is commented out due to insufficient UI inspection, will fix in the future.
+            # argument_bindings={
+            #     "instruments": "instruments"
+            # },
         )
 
     @staticmethod
@@ -252,6 +270,7 @@ class StaticWorkflowCatalog:
 
         mapping = {
             "run_explorer": NormalizedExplorerCommand(
+                system_test_action="none",
                 artifact_action="none",
                 metastock_action="run",
                 result_action="none",
@@ -261,6 +280,7 @@ class StaticWorkflowCatalog:
                 ),
             ),
             "run_and_capture": NormalizedExplorerCommand(
+                system_test_action="none",
                 artifact_action="none",
                 metastock_action="run",
                 result_action="capture_new",
@@ -283,6 +303,7 @@ class StaticWorkflowCatalog:
                 )
             ),
             "revise_and_run": NormalizedExplorerCommand(
+                system_test_action="none",
                 artifact_action="revise",
                 resolved_instruction=(
                     str(instruction).strip()

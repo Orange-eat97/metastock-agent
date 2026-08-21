@@ -32,11 +32,22 @@ Calling a function is optional:
 For Explorer lifecycle actions, use execute_explorer_command. Do not try to
 choose among overlapping workflow names. Resolve these dimensions separately:
 1. artifact_action: generate, revise, repair, or none;
-2. metastock_action: create, run, create_and_run, or none;
-3. result_action: capture_new or none;
-4. exact MetaStock instrument, exchange, or custom-list labels, or all. Preserve every user-supplied label verbatim in one comma-separated instruments value; never broaden, abbreviate, or invent a label.
+2. system_test_action: convert or none;
+3. metastock_action: create, run, create_and_run, or none;
+4. result_action: capture_new or none;
+5. exact MetaStock instrument, exchange, or custom-list labels, or all. Preserve every user-supplied label verbatim in one comma-separated instruments value; never broaden, abbreviate, or invent a label.
 
 Interpretation rules:
+- When the user asks to upload an Explorer without supplying fields, call
+  prepare_explorer_upload so the frontend can show a blank editable card.
+- When the user asks for an Explorer upload template, call
+  get_explorer_upload_template.
+- A completed Explorer template is handled deterministically by the frontend and
+  must not be rewritten.
+- When the user asks for System Test code from an existing stored Explorer, use
+  execute_explorer_command with artifact_action=none,
+  system_test_action=convert, metastock_action=none, and result_action=none.
+  System Test conversion never invokes the Automator.
 - A user asking to create, build, make, or produce an Explorer normally wants
   it generated and created in MetaStock. Use artifact_action=generate and
   metastock_action=create unless they explicitly ask for a draft, preview, or
@@ -59,6 +70,13 @@ Interpretation rules:
 - Running or creating in MetaStock requires an affirmative current-message
   request. Negated requests must not trigger a side effect.
 - Handle only one user turn and at most one function call.
+- When describing the active Explorer, include only its user-facing name,
+  filter, and useful stored-result summary. Do not mention Explorer IDs,
+  MetaStock lifecycle state, or column definitions unless the user
+  explicitly asks for them.
+  - Asking to show, describe, or identify the current or active Explorer requires
+  the get_explorer function. Durable context contains only an internal
+  Explorer reference and does not contain the Explorer name or filter formula.
 
 The context contains at most five completed messages. No RAG cards are present.
 RAG is invoked later only if LangGraph executes a RAG-backed step.
@@ -75,6 +93,30 @@ class ConversationDriverProtocol(Protocol):
 
 class ConversationDriverError(RuntimeError):
     pass
+
+
+def _public_durable_context(
+        request: ConversationModelRequest,
+    ) -> dict[str, Any]:
+        """
+        Expose only conversation context useful to the model.
+
+        Keep the durable Explorer ID and MetaStock lifecycle state
+        internal to orchestration.
+        """
+        context = request.context
+
+        return {
+            "has_active_explorer": (
+                context.active_explorer_id is not None
+            ),
+            "active_result_id": (
+                context.active_result_id
+            ),
+            "active_service_log_id": (
+                context.active_service_log_id
+            ),
+        }
 
 
 class OpenAIConversationDriver:
@@ -112,7 +154,7 @@ class OpenAIConversationDriver:
             CONVERSATION_SYSTEM_PROMPT
             + "\n\nActive durable context:\n"
             + json.dumps(
-                request.context.model_dump(mode="json"),
+                _public_durable_context(request),
                 ensure_ascii=False,
             )
         )
@@ -228,12 +270,15 @@ class DeterministicConversationDriver:
         if route is ChatRoute.FALLBACK:
             return ConversationModelResponse(
                 assistant_message=(
-                    "I can help generate, inspect, repair, revise, run, or "
-                    "retrieve MetaStock Explorer results."
+                    "I can help upload, generate, inspect, repair, revise, "
+                    "run, convert System Tests, or retrieve MetaStock Explorer "
+                    "results."
                 )
             )
 
         direct_routes = {
+            ChatRoute.PREPARE_EXPLORER_UPLOAD,
+            ChatRoute.GET_EXPLORER_UPLOAD_TEMPLATE,
             ChatRoute.GET_EXPLORER,
             ChatRoute.GET_RAG_LOG,
             ChatRoute.GET_EXPLORER_RESULT,
@@ -251,6 +296,7 @@ class DeterministicConversationDriver:
 
         command_arguments = {
             "artifact_action": "none",
+            "system_test_action": "none",
             "metastock_action": "none",
             "result_action": "none",
             "instruments": "all",
@@ -278,6 +324,13 @@ class DeterministicConversationDriver:
                     "resolved_instruction": request.user_message,
                 }
             )
+        elif (
+            route
+            is ChatRoute.CONVERT_EXPLORER_TO_SYSTEM_TEST
+        ):
+            command_arguments[
+                "system_test_action"
+            ] = "convert"
         elif route is ChatRoute.RUN_EXPLORER:
             command_arguments["metastock_action"] = "run"
         elif route is ChatRoute.RUN_AND_READ_EXPLORER:

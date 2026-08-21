@@ -39,6 +39,11 @@ from orchestration.conversation_workflow_nodes import (
     ExecuteConversationWorkflowStepNode,
     PrepareConversationWorkflowNode,
 )
+from orchestration.sequence_workflow_nodes import (
+    ExecuteExplorerSequenceStepNode,
+    PrepareExplorerSequenceNode,
+    route_after_sequence_step,
+)
 from orchestration.nodes import (
     ExecuteResolvedToolNode,
     route_after_resolution,
@@ -73,6 +78,8 @@ PREPARE_WORKFLOW_NODE = "prepare_workflow"
 EXECUTE_WORKFLOW_STEP_NODE = (
     "execute_workflow_step"
 )
+PREPARE_SEQUENCE_NODE = "prepare_explorer_sequence"
+EXECUTE_SEQUENCE_STEP_NODE = "execute_explorer_sequence_step"
 COMPOSE_RESULT_NODE = (
     "compose_conversation_result"
 )
@@ -187,6 +194,16 @@ def build_conversational_graph(
         ),
     )
     builder.add_node(
+        PREPARE_SEQUENCE_NODE,
+        PrepareExplorerSequenceNode(),
+    )
+    builder.add_node(
+        EXECUTE_SEQUENCE_STEP_NODE,
+        ExecuteExplorerSequenceStepNode(
+            executor
+        ),
+    )
+    builder.add_node(
         COMPOSE_RESULT_NODE,
         ComposeConversationResultNode(
             effective_composer
@@ -218,6 +235,7 @@ def build_conversational_graph(
             "workflow": (
                 PREPARE_WORKFLOW_NODE
             ),
+            "sequence": PREPARE_SEQUENCE_NODE,
             "finalize": FINALIZE_NODE,
         },
     )
@@ -230,6 +248,10 @@ def build_conversational_graph(
         PREPARE_WORKFLOW_NODE,
         EXECUTE_WORKFLOW_STEP_NODE,
     )
+    builder.add_edge(
+        PREPARE_SEQUENCE_NODE,
+        EXECUTE_SEQUENCE_STEP_NODE,
+    )
 
     builder.add_conditional_edges(
         EXECUTE_WORKFLOW_STEP_NODE,
@@ -241,6 +263,14 @@ def build_conversational_graph(
             "compose": (
                 COMPOSE_RESULT_NODE
             ),
+        },
+    )
+    builder.add_conditional_edges(
+        EXECUTE_SEQUENCE_STEP_NODE,
+        route_after_sequence_step,
+        {
+            "continue": EXECUTE_SEQUENCE_STEP_NODE,
+            "compose": COMPOSE_RESULT_NODE,
         },
     )
 

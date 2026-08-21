@@ -142,6 +142,10 @@ class Ms10ConversationAdapter(ConversationBackendPort):
                     for message in messages
                     if message.explorer is not None
                     and message.explorer.explorer_id
+                    and not message.explorer.is_transient
+                    and not message.explorer.explorer_id.startswith(
+                        "transient:"
+                    )
                 )
             )
             persisted_rows = self._explorer_edit_service.get_explorers(
@@ -566,6 +570,9 @@ def _map_explorer(
         manual_edit_version=_safe_int(
             raw.get("manual_edit_version", raw_row.get("manual_edit_version", 0)),
             default=0,
+        ),
+        is_transient=bool(
+            raw.get("is_transient", False)
         ),
     )
 

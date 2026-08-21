@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QInputDialog,
 )
+from sqlalchemy import text
 
 from .models import (
     ChatMessageViewModel,
@@ -69,6 +70,11 @@ _UUID_PATTERN = re.compile(
     r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-"
     r"[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}\b"
 )
+
+
+_USER_MESSAGE_BG = "#3b3b43"
+_USER_MESSAGE_SELECTION_BG = "#737b8c"
+_USER_MESSAGE_SELECTION_FG = "#ffffff"
 
 
 def _is_private_metadata_key(key: Any) -> bool:
@@ -769,6 +775,12 @@ class ExplorerInlineCard(QFrame):
     ) -> None:
         super().__init__(parent)
         self._explorer = explorer
+        self._is_transient = bool(
+            explorer.is_transient
+            or explorer.explorer_id.startswith(
+                "transient:"
+            )
+        )
         self.setObjectName("explorerCard")
         self.setStyleSheet(
             "QFrame#explorerCard {"
@@ -780,7 +792,14 @@ class ExplorerInlineCard(QFrame):
         self._root.setSpacing(8)
 
         header = QHBoxLayout()
-        self._title = QLabel(explorer.name or "Explorer")
+        self._title = QLabel(
+            explorer.name
+            or (
+                "New Explorer upload"
+                if self._is_transient
+                else "Explorer"
+            )
+        )
         self._title.setFont(font(10, QFont.Weight.DemiBold))
         self._title.setStyleSheet(f"color:{FG};")
         header.addWidget(self._title)
@@ -788,21 +807,48 @@ class ExplorerInlineCard(QFrame):
 
         self._edit_button = _plain_button("Edit")
         self._edit_button.setToolTip(
-            "Edit stored Explorer fields directly. This does not call AI."
+            (
+                "Complete the Explorer fields and upload."
+                if self._is_transient
+                else (
+                    "Edit stored Explorer fields directly. "
+                    "This does not call AI."
+                )
+            )
         )
         self._edit_button.clicked.connect(self._show_editor)
         header.addWidget(self._edit_button)
+        if self._is_transient:
+            self._edit_button.hide()
 
         validation = QLabel(
-            "✓  VALID" if explorer.validation_status == "passed" else
-            "✕  INVALID" if explorer.validation_status == "failed" else
-            "…  PENDING"
+            (
+                "✎  DRAFT"
+                if self._is_transient
+                and not explorer.validation_errors
+                else "✕  INVALID DRAFT"
+                if self._is_transient
+                else "✓  VALID"
+                if explorer.validation_status == "passed"
+                else "✕  INVALID"
+                if explorer.validation_status == "failed"
+                else "…  PENDING"
+            )
         )
         validation.setFont(font(7, QFont.Weight.DemiBold))
         validation_color = (
-            SUCCESS_DARK if explorer.validation_status == "passed" else
-            ERROR if explorer.validation_status == "failed" else
-            FG_DIM
+            ERROR
+            if (
+                self._is_transient
+                and explorer.validation_errors
+            )
+            else FG_DIM
+            if self._is_transient
+            else SUCCESS_DARK
+            if explorer.validation_status == "passed"
+            else ERROR
+            if explorer.validation_status == "failed"
+            else FG_DIM
         )
         validation.setStyleSheet(
             f"color:{validation_color}; background:{MUTED_SOFT};"
@@ -919,7 +965,11 @@ class ExplorerInlineCard(QFrame):
         actions.addStretch()
         cancel = _plain_button("Cancel")
         cancel.clicked.connect(self._hide_editor)
-        self._save_button = QPushButton("Save")
+        self._save_button = QPushButton(
+            "Upload"
+            if self._is_transient
+            else "Save"
+        )
         self._save_button.setFont(font(8, QFont.Weight.Medium))
         self._save_button.setFixedHeight(26)
         self._save_button.setStyleSheet(
@@ -935,6 +985,12 @@ class ExplorerInlineCard(QFrame):
         self._editor_panel.hide()
         self._root.addWidget(self._editor_panel)
         self._refresh_column_controls()
+        if self._is_transient:
+            self._show_editor()
+            if explorer.validation_errors:
+                self.show_save_errors(
+                    list(explorer.validation_errors)
+                )
 
     @property
     def explorer_id(self) -> str:
@@ -1027,7 +1083,19 @@ class ExplorerInlineCard(QFrame):
 
     def set_saving(self, saving: bool) -> None:
         self._save_button.setEnabled(not saving)
-        self._save_button.setText("Saving…" if saving else "Save")
+        self._save_button.setText(
+            (
+                "Uploading…"
+                if self._is_transient
+                else "Saving…"
+            )
+            if saving
+            else (
+                "Upload"
+                if self._is_transient
+                else "Save"
+            )
+        )
         self._add_column_button.setEnabled(
             not saving and len(self._column_rows) < self.MAX_COLUMNS
         )
@@ -1477,12 +1545,64 @@ class MessageBubble(QWidget):
 
         text = QLabel(message.text)
         text.setWordWrap(True)
-        text.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        text.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        text.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu
+        )
+
+        def show_text_menu(position) -> None:
+            menu = QMenu(text)
+            apply_light_menu(menu)
+
+            copy_action = menu.addAction("Copy")
+            copy_action.setEnabled(bool(text.selectedText()))
+            copy_action.triggered.connect(
+                lambda: QApplication.clipboard().setText(
+                    text.selectedText()
+                )
+            )
+
+            select_all_action = menu.addAction("Select All")
+            select_all_action.triggered.connect(
+                lambda: text.setSelection(
+                    0,
+                    len(text.text()),
+                )
+            )
+
+            menu.exec(text.mapToGlobal(position))
+
+        text.customContextMenuRequested.connect(
+            show_text_menu
+        )
         text.setFont(font(10))
+
+        if message.role == "user":
+            selection_palette = text.palette()
+            selection_palette.setColor(
+                QPalette.ColorRole.Highlight,
+                QColor(
+                    _USER_MESSAGE_SELECTION_BG
+                ),
+            )
+            selection_palette.setColor(
+                QPalette.ColorRole.HighlightedText,
+                QColor(
+                    _USER_MESSAGE_SELECTION_FG
+                ),
+            )
+            text.setPalette(
+                selection_palette
+            )
+
         text.setStyleSheet(
-            f"background:{PRIMARY if message.role == 'user' else MUTED};"
+            f"background:{_USER_MESSAGE_BG if message.role == 'user' else MUTED};"
             f"color:{PRIMARY_FG if message.role == 'user' else FG};"
             "border-radius:11px; padding:8px 10px;"
+            f"selection-background-color:{_USER_MESSAGE_SELECTION_BG};"
+            f"selection-color:{_USER_MESSAGE_SELECTION_FG};"
         )
         text.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         column_layout.addWidget(text)
@@ -1598,7 +1718,7 @@ class ChatArea(QFrame):
         self._message_layout = QVBoxLayout(self._message_host)
         self._message_layout.setContentsMargins(14, 14, 14, 14)
         self._message_layout.setSpacing(14)
-        self._message_layout.addStretch()
+        self._message_layout.insertStretch(0)
         self._scroll.setWidget(self._message_host)
         self._scroll.verticalScrollBar().rangeChanged.connect(
             self._on_scroll_range_changed
@@ -1631,7 +1751,7 @@ class ChatArea(QFrame):
         input_layout.setSpacing(7)
         self._editor = MessageEditor()
         self._editor.setPlaceholderText(
-            "Ask MetaStock Agentâ€¦ e.g. Run this Explorer on "
+            "Ask MetaStock Agent\u2026 e.g. Run this Explorer on "
             "SGX Mainboard, My Momentum List"
         )
         self._editor.submit_requested.connect(self._send)
@@ -1687,7 +1807,7 @@ class ChatArea(QFrame):
         input_layout.addWidget(self._send_button, 0, Qt.AlignmentFlag.AlignVCenter)
         hint = QLabel(
             "Use exact MetaStock instrument/list labels in the message "
-            "Â· separate multiple labels with commas Â· Shift+Enter for new line"
+            "\u00b7 separate multiple labels with commas \u00b7 Shift+Enter for new line"
         )
         hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         hint.setFont(font(7))
@@ -1710,11 +1830,12 @@ class ChatArea(QFrame):
     def clear_messages(self) -> None:
         self._message_bubbles.clear()
         while self._message_layout.count() > 1:
-            item = self._message_layout.takeAt(0)
+            item = self._message_layout.takeAt(1)
             widget = item.widget()
             if widget is not None:
                 widget.deleteLater()
 
+   
     def add_message(
         self,
         message: ChatMessageViewModel,
@@ -1722,18 +1843,19 @@ class ChatArea(QFrame):
         scroll: bool = True,
     ) -> None:
         bubble = MessageBubble(message)
-        bubble.clarification_submitted.connect(self.clarification_chosen)
+        bubble.clarification_submitted.connect(
+            self.clarification_chosen
+        )
         bubble.explorer_save_requested.connect(
             self.explorer_save_requested
         )
-        self._message_layout.insertWidget(
-            self._message_layout.count() - 1,
-            bubble,
-        )
+
+        self._message_layout.addWidget(bubble)
         self._message_bubbles.append(bubble)
+
         if scroll:
             self.request_scroll_to_bottom()
-
+   
     def scroll_to_bottom_deferred(self) -> None:
         self.request_scroll_to_bottom()
 

@@ -42,6 +42,9 @@ from services.conversation_models import (
     ConversationTurn,
     ExecuteConversationTurnResult,
 )
+from services.explorer_upload_protocol import (
+    decode_explorer_upload_envelope,
+)
 from services.planner_history import (
     build_recent_planner_messages,
 )
@@ -274,6 +277,22 @@ class ConversationApplicationService:
                 "User content cannot be blank."
             )
 
+        upload_envelope = (
+            decode_explorer_upload_envelope(
+                normalised_user_content
+            )
+        )
+        displayed_user_content = (
+            str(
+                upload_envelope.get(
+                    "display_text"
+                )
+                or ""
+            ).strip()
+            if upload_envelope is not None
+            else ""
+        ) or normalised_user_content
+
         resolved_client_turn_id = (
             client_turn_id or uuid4()
         )
@@ -281,7 +300,7 @@ class ConversationApplicationService:
         start_result = self._streams.start_or_get(
             conversation_id=conversation_id,
             client_turn_id=resolved_client_turn_id,
-            user_content=normalised_user_content,
+            user_content=displayed_user_content,
         )
 
         stream = start_result.stream
@@ -361,7 +380,7 @@ class ConversationApplicationService:
                 conversation_id,
                 [
                     HumanMessage(
-                        content=normalised_user_content,
+                        content=displayed_user_content,
                         additional_kwargs={
                             METASTOCK_METADATA_KEY: {
                                 "stream_id": str(

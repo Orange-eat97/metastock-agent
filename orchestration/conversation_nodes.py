@@ -15,12 +15,16 @@ from orchestration.context_resolver import (
     DecisionResolution,
 )
 from orchestration.conversation_actions import (
+    ConversationActionCall,
     ConversationModelRequest,
     ConversationModelResponse,
     build_conversation_actions,
 )
 from orchestration.conversation_model import (
     ConversationDriverProtocol,
+)
+from services.explorer_upload_protocol import (
+    decode_explorer_upload_envelope,
 )
 from orchestration.response_composer import (
     ResponseComposerProtocol,
@@ -60,6 +64,16 @@ class InitializeConversationTurnNode:
             "workflow_complete": False,
             "workflow_succeeded": False,
             "workflow_failed_tool": None,
+            "sequence_plan": {},
+            "sequence_stage_index": 0,
+            "sequence_step_index": 0,
+            "sequence_stage_results": [],
+            "sequence_current_results": [],
+            "sequence_context": {},
+            "sequence_complete": False,
+            "sequence_succeeded": False,
+            "sequence_failed_stage_index": None,
+            "sequence_failed_tool": None,
             "composed_response": "",
             "turn_output": {},
         }
@@ -97,9 +111,26 @@ class ConverseNode:
                 self._workflows,
             ),
         )
-        response = self._driver.converse(
-            request
+        upload_arguments = (
+            decode_explorer_upload_envelope(
+                payload.user_message
+            )
         )
+        if upload_arguments is not None:
+            upload_arguments.pop(
+                "display_text",
+                None,
+            )
+            response = ConversationModelResponse(
+                action_call=ConversationActionCall(
+                    name="upload_explorer",
+                    arguments=upload_arguments,
+                )
+            )
+        else:
+            response = self._driver.converse(
+                request
+            )
 
         return {
             "conversation_request": (
@@ -236,9 +267,22 @@ class ComposeConversationResultNode:
             fallback_message=fallback_message,
         )
 
+        compact_result_message = (
+            _compact_result_message(results)
+        )
+        compact_explorer_message = (
+            _compact_explorer_message(results)
+        )
+        deterministic_message = (
+            _deterministic_display_message(results)
+        )
+
         return {
             "composed_response": (
-                self._composer.compose(
+                compact_result_message
+                or compact_explorer_message
+                or deterministic_message
+                or self._composer.compose(
                     request
                 ).strip()
                 or fallback_message
@@ -301,6 +345,92 @@ class FinalizeConversationTurnNode:
                 mode="json"
             )
         }
+
+
+def _deterministic_display_message(
+    results: list[ToolResult],
+) -> str | None:
+    protected_tools = {
+        "prepare_explorer_upload",
+        "get_explorer_upload_template",
+        "upload_explorer",
+        "convert_explorer_to_system_test",
+        "execute_explorer_sequence",
+    }
+    for result in reversed(results):
+        if result.tool_name not in protected_tools:
+            continue
+        return _assistant_message(result)
+    return None
+
+
+def _compact_result_message(
+    results: list[ToolResult],
+) -> str | None:
+    # The ResultInlineCard already renders the full captured table.
+    # Keep the accompanying assistant text short and non-duplicative.
+    for result in reversed(results):
+        if (
+            result.tool_name
+            == "read_metastock_explorer_results"
+            and result.ok
+        ):
+            return (
+                "Explorer results captured successfully. "
+                "See the results card below."
+            )
+
+    return None
+
+
+def _compact_explorer_message(
+    results: list[ToolResult],
+) -> str | None:
+    # Explorer cards already expose columns, validation, assumptions,
+    # details, and failures. Keep conversation text to name + filter.
+    labels = {
+        "generate_explorer": "generated",
+        "revise_explorer": "revised",
+        "repair_explorer": "repaired",
+        "get_explorer": "current",
+        "upload_explorer": "uploaded",
+    }
+
+    for result in results:
+        label = labels.get(result.tool_name)
+
+        if label is None or not result.ok:
+            continue
+
+        raw_explorer = result.data.get("explorer")
+
+        if not isinstance(raw_explorer, dict):
+            continue
+
+        name = str(
+            raw_explorer.get("name") or ""
+        ).strip()
+        filter_code = str(
+            raw_explorer.get("filter_code") or ""
+        ).strip()
+
+        if not name or not filter_code:
+            continue
+
+        if label == "current":
+            return (
+                "Current Explorer:\n\n"
+                f"- Name: {name}\n"
+                f"- Filter: {filter_code}"
+            )
+
+        return (
+            f"Explorer ({label}):\n\n"
+            f"- Name: {name}\n"
+            f"- Filter: {filter_code}"
+        )
+
+    return None
 
 
 def _read_turn_input(

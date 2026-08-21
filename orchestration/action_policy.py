@@ -6,7 +6,9 @@ from uuid import UUID
 from chat.models import ChatContext
 from chat.routes import ChatRoute
 from orchestration.command_resolution import (
+    ArtifactAction,
     CommandResolutionError,
+    MetaStockAction,
     SemanticCommandResolver,
 )
 from orchestration.context_resolver import (
@@ -15,9 +17,15 @@ from orchestration.context_resolver import (
 )
 from orchestration.conversation_actions import (
     COMMAND_ACTION_NAME,
+    SEQUENCE_ACTION_NAME,
     ConversationActionDefinition,
     ConversationModelRequest,
     ConversationModelResponse,
+)
+from orchestration.sequence_workflows import (
+    ExplorerSequenceRequest,
+    ResolvedExplorerSequenceRequest,
+    ResolvedExplorerSequenceStage,
 )
 from services.explorer_name_resolver import (
     ExplorerNameAmbiguousError,
@@ -45,6 +53,11 @@ class ConversationActionPolicy:
     }
     LOG_ID_TOOLS = {
         "get_rag_log",
+    }
+    PASSTHROUGH_TOOLS = {
+        "prepare_explorer_upload",
+        "get_explorer_upload_template",
+        "upload_explorer",
     }
     ACTIVE_REFERENCE_WORDS = {
         "active",
@@ -118,6 +131,15 @@ class ConversationActionPolicy:
                 arguments=call.arguments,
             )
 
+        if (
+            action.kind == "command"
+            and action.name == SEQUENCE_ACTION_NAME
+        ):
+            return self._resolve_sequence(
+                context=request.context,
+                arguments=call.arguments,
+            )
+
         return self._resolve_tool(
             context=request.context,
             action=action,
@@ -155,6 +177,42 @@ class ConversationActionPolicy:
                 )
             )
 
+            external_name = self._clean_text(
+                command.explorer_reference
+            )
+            can_use_external_metastock_name = (
+                error
+                == "No stored Explorer has that exact name."
+                and command.artifact_action
+                is ArtifactAction.NONE
+                and command.metastock_action
+                in {
+                    MetaStockAction.RUN,
+                    MetaStockAction.CREATE_AND_RUN,
+                }
+                and external_name is not None
+                and not self._is_active_reference(
+                    external_name
+                )
+            )
+
+            if can_use_external_metastock_name:
+                source_explorer_id = (
+                    self._external_metastock_reference(
+                        external_name
+                    )
+                )
+                # Explicit unstored name means select/run an Explorer
+                # that already exists in MetaStock. Do not create it.
+                command = command.model_copy(
+                    update={
+                        "metastock_action": (
+                            MetaStockAction.RUN
+                        )
+                    }
+                )
+                error = None
+
             if error:
                 return self._clarify(
                     error,
@@ -183,6 +241,113 @@ class ConversationActionPolicy:
             ),
         )
 
+    def _resolve_sequence(
+        self,
+        *,
+        context: ChatContext,
+        arguments: dict[str, Any],
+    ) -> DecisionResolution:
+        try:
+            request = ExplorerSequenceRequest.model_validate(
+                arguments
+            )
+        except Exception:
+            return self._clarify(
+                (
+                    "The Explorer sequence is incomplete or "
+                    "invalid. Provide one to ten stages, each "
+                    "with an Explorer reference and its own "
+                    "instrument selection."
+                ),
+                SEQUENCE_ACTION_NAME,
+            )
+
+        resolved_stages: list[
+            ResolvedExplorerSequenceStage
+        ] = []
+
+        for index, stage in enumerate(request.stages):
+            explorer_id, error = self._resolve_explorer_id(
+                reference=stage.explorer_reference,
+                context=context,
+            )
+
+            resolved_create_in_metastock = (
+                stage.create_in_metastock
+            )
+            external_name = self._clean_text(
+                stage.explorer_reference
+            )
+
+            can_use_external_metastock_name = (
+                error
+                == "No stored Explorer has that exact name."
+                and external_name is not None
+                and not self._is_active_reference(
+                    external_name
+                )
+            )
+
+            if can_use_external_metastock_name:
+                explorer_id = (
+                    self._external_metastock_reference(
+                        external_name
+                    )
+                )
+
+                # An unstored Explorer has no formula or
+                # columns available to the Agent for creation.
+                # Treat it as an existing MetaStock Explorer
+                # and let the MetaStock selector determine
+                # whether the exact name exists.
+                resolved_create_in_metastock = False
+                error = None
+
+            if error or not explorer_id:
+                return self._clarify(
+                    (
+                        f"Sequence stage {index + 1} could "
+                        f"not resolve Explorer "
+                        f"{stage.explorer_reference!r}: "
+                        f"{error or 'missing Explorer ID'}"
+                    ),
+                    SEQUENCE_ACTION_NAME,
+                )
+
+            resolved_stages.append(
+                ResolvedExplorerSequenceStage(
+                    stage_index=index,
+                    explorer_id=explorer_id,
+                    explorer_reference=(
+                        stage.explorer_reference
+                    ),
+                    instruments=stage.instruments,
+                    create_in_metastock=(
+                        resolved_create_in_metastock
+                    ),
+                )
+            )
+
+        resolved = ResolvedExplorerSequenceRequest(
+            stages=resolved_stages,
+            stop_on_failure=True,
+        )
+
+        return DecisionResolution(
+            outcome="sequence",
+            route=ChatRoute.EXECUTE_EXPLORER_SEQUENCE,
+            workflow_name=SEQUENCE_ACTION_NAME,
+            arguments={
+                "sequence": resolved.model_dump(
+                    mode="json"
+                ),
+            },
+            decision_reason=(
+                "The conversation model requested a "
+                "validated multi-Explorer sequence."
+            ),
+        )
+  
     def _resolve_tool(
         self,
         *,
@@ -228,7 +393,11 @@ class ConversationActionPolicy:
                 action.name,
             )
 
-        resolved_arguments: dict[str, Any] = {}
+        resolved_arguments: dict[str, Any] = (
+            dict(arguments)
+            if action.name in self.PASSTHROUGH_TOOLS
+            else {}
+        )
 
         if action.name in self.EXPLORER_ID_TOOLS:
             explorer_id, error = self._resolve_explorer_id(
@@ -282,7 +451,7 @@ class ConversationActionPolicy:
             arguments=resolved_arguments,
             decision_reason=(
                 "The conversation model selected "
-                f"read-only tool {action.name}."
+                f"conversation tool {action.name}."
             ),
         )
 
@@ -405,6 +574,19 @@ class ConversationActionPolicy:
             value.strip().casefold()
             in cls.ACTIVE_REFERENCE_WORDS
         )
+
+    @staticmethod
+    def _external_metastock_reference(
+        explorer_name: str,
+    ) -> str:
+        cleaned = str(explorer_name or "").strip()
+
+        if not cleaned:
+            raise ValueError(
+                "External MetaStock Explorer name is required."
+            )
+
+        return f"metastock-name:{cleaned}"
 
     @staticmethod
     def _canonical_uuid(value: Any) -> str | None:

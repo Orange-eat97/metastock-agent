@@ -41,6 +41,17 @@ class ChatRoute(str, Enum):
         "revise_and_run_explorer_sequence"
     )
 
+    PREPARE_EXPLORER_UPLOAD = (
+        "prepare_explorer_upload"
+    )
+    GET_EXPLORER_UPLOAD_TEMPLATE = (
+        "get_explorer_upload_template"
+    )
+    UPLOAD_EXPLORER = "upload_explorer"
+    CONVERT_EXPLORER_TO_SYSTEM_TEST = (
+        "convert_explorer_to_system_test"
+    )
+
     GET_EXPLORER = "get_explorer"
     GET_RAG_LOG = "get_rag_log"
 
@@ -76,6 +87,10 @@ class ChatRoute(str, Enum):
     )
     CREATE_RUN_AND_READ_EXPLORER = (
         "create_run_and_read_explorer_sequence"
+    )
+
+    EXECUTE_EXPLORER_SEQUENCE = (
+        "execute_explorer_sequence"
     )
 
     RESPOND = "respond"

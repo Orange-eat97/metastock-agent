@@ -68,6 +68,8 @@ class ExplorerDTO(BaseModel):
     source: str | None = None
     service_log_id: str | None = None
     service_log_created_at: str | None = None
+    manual_edit_version: int = 0
+    is_transient: bool = False
 
 
 class GenerateExplorerInput(BaseModel):
@@ -156,6 +158,76 @@ class GetRagLogOutput(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class PrepareExplorerUploadInput(BaseModel):
+    pass
+
+
+class PrepareExplorerUploadOutput(BaseModel):
+    explorer: ExplorerDTO
+
+
+class GetExplorerUploadTemplateInput(BaseModel):
+    pass
+
+
+class GetExplorerUploadTemplateOutput(BaseModel):
+    template_text: str
+
+
+class UploadExplorerInput(BaseModel):
+    draft_id: str = Field(min_length=1)
+    name: str = ""
+    description: str = ""
+    columns: list[ExplorerColumnDTO] = Field(
+        default_factory=list
+    )
+    filter_code: str = ""
+    assumptions: list[str] = Field(
+        default_factory=list
+    )
+    frontend_errors: list[str] = Field(
+        default_factory=list
+    )
+
+
+class UploadExplorerOutput(BaseModel):
+    explorer: ExplorerDTO
+
+
+class SystemTestSettingsDTO(BaseModel):
+    order_bias: str
+    portfolio_bias: str
+    position_limit_enabled: bool
+    max_positions: int
+    buy_enabled: bool
+    sell_enabled: bool
+    sell_short_enabled: bool
+    buy_to_cover_enabled: bool
+    stops_enabled: bool
+    optimizations_enabled: bool
+
+
+class ConvertExplorerToSystemTestInput(BaseModel):
+    explorer_id: str = Field(
+        min_length=1,
+        description=(
+            "Validated explorer_outputs ID to convert."
+        ),
+    )
+
+
+class ConvertExplorerToSystemTestOutput(BaseModel):
+    system_test_id: str
+    explorer_id: str
+    name: str
+    description: str
+    buy_formula: str
+    sell_formula: str
+    settings: SystemTestSettingsDTO
+    validation: ValidationDTO
+    service_log_id: str | None = None
+
+
 class RunExplorerInput(BaseModel):
     explorer_id: str = Field(
         description="Primary key of the explorer_outputs row to run in MetaStock."
@@ -236,10 +308,22 @@ class ReadMetaStockResultsInput(BaseModel):
     explorer_id: str = Field(
         min_length=1,
         description=(
-            "explorer_outputs ID associated with the "
-            "currently open MetaStock result window. "
-            "Required so the result artifact can be "
-            "stored without becoming orphaned."
+            "Stored explorer_outputs UUID or an internal "
+            "metastock-name:<exact name> runtime reference."
+        ),
+    )
+    explorer_name: str | None = Field(
+        default=None,
+        description=(
+            "Exact MetaStock Explorer name. Required for a "
+            "MetaStock-only Explorer and optional for a stored Explorer."
+        ),
+    )
+    run_started_at: str | None = Field(
+        default=None,
+        description=(
+            "Timestamp returned by the preceding MetaStock run step. "
+            "The result reader start time is used only as a fallback."
         ),
     )
     close_after_read: bool = Field(
@@ -252,7 +336,9 @@ class ReadMetaStockResultsInput(BaseModel):
 
 
 class ReadMetaStockResultsOutput(BaseModel):
-    explorer_id: str
+    explorer_id: str | None = None
+    explorer_name: str | None = None
+    run_started_at: str | None = None
     result_id: str | None = None
     stored_at: str | None = None
     persisted: bool = False
@@ -268,6 +354,7 @@ class ReadMetaStockResultsOutput(BaseModel):
     diagnostics: dict[str, Any] = Field(
         default_factory=dict
     )
+
 
 class GetExplorerResultInput(BaseModel):
     result_id: str = Field(
@@ -305,7 +392,9 @@ class ListExplorerResultsInput(BaseModel):
 
 class StoredMetaStockExplorerResultDTO(BaseModel):
     result_id: str
-    explorer_id: str
+    explorer_id: str | None = None
+    explorer_name: str
+    run_started_at: str
     created_at: str | None = None
 
     schema_version: Literal["1.0"]
@@ -339,7 +428,9 @@ class MetaStockExplorerResultSummaryDTO(
     BaseModel
 ):
     result_id: str
-    explorer_id: str
+    explorer_id: str | None = None
+    explorer_name: str
+    run_started_at: str
     created_at: str | None = None
 
     schema_version: Literal["1.0"]
@@ -356,7 +447,6 @@ class MetaStockExplorerResultSummaryDTO(
 
     capture_started_at: str | None = None
     capture_finished_at: str | None = None
-
 
 
 class GetExplorerResultOutput(BaseModel):
