@@ -1,0 +1,7 @@
+{
+  "patch_id": "result-grid-fallback-v1",
+  "main_dir": "C:\\GitHub\\metastock-agent\\release\\staging\\automator\\main",
+  "result_scraper": "C:\\GitHub\\metastock-agent\\release\\staging\\automator\\main\\compartments\\result_scraper.py",
+  "test_path": "C:\\GitHub\\metastock-agent\\release\\staging\\automator\\main\\tests\\test_result_grid_coordinate_fallback.py",
+  "test_existed_before_patch": false
+}

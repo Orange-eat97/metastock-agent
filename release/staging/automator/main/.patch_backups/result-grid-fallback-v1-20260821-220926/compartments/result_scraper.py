@@ -29,10 +29,6 @@ RESULTS_GRID_AUTOMATION_ID = "ResultsGridControl"
 RESULT_FIRST_ROW_CALIBRATION_POINT = "result_first_row"
 RESULT_FIRST_ROW_FALLBACK_DELAY_SECONDS = 3.0
 
-# After Results (N) appears, give the grid UIA object only a
-# short grace period before using the calibrated result-row path.
-RESULTS_GRID_UIA_GRACE_SECONDS = 0.75
-
 
 @dataclass(frozen=True)
 class ExplorationResultRow:
@@ -149,25 +145,12 @@ class ExplorationResultScraper:
                 rows=[],
             )
 
-        # Results (N) is the safe boundary for result capture. Once it is
-        # present, the run has reached the result surface and the DataGrid
-        # UIA object becomes an optimization rather than a prerequisite.
         grid = self._wait_for_results_grid(
             execution_window=execution_window,
             expected_count=expected_count,
-            timeout=min(
-                self.result_ready_timeout,
-                RESULTS_GRID_UIA_GRACE_SECONDS,
-            ),
+            timeout=self.result_ready_timeout,
             poll_interval=self.poll_interval,
         )
-
-        if grid is None:
-            log(
-                "Results (N) is available, but the result DataGrid did not "
-                "materialize through UIA. Proceeding immediately through "
-                "the calibrated first-result-row fallback."
-            )
 
         headers, rows = self._copy_full_results_table(
             execution_window=execution_window,
@@ -254,20 +237,8 @@ class ExplorationResultScraper:
         expected_count: int,
         timeout: float,
         poll_interval: float,
-    ) -> Optional[BaseWrapper]:
-        """
-        Best-effort UIA acquisition of the result grid.
-
-        Results (N) has already been observed before this method is called.
-        Therefore failure to materialize ResultsGridControl is not fatal:
-        returning None tells the copy path to activate the calibrated
-        result_first_row immediately.
-
-        Deliberately do not take another full UIA snapshot after timeout.
-        The same descendant traversal is the operation that may be failing
-        to materialize, so repeating it here can make recovery slower.
-        """
-        deadline = time.monotonic() + max(float(timeout), 0.0)
+    ) -> BaseWrapper:
+        deadline = time.monotonic() + timeout
         last_error: Exception | None = None
 
         while time.monotonic() < deadline:
@@ -326,22 +297,25 @@ class ExplorationResultScraper:
 
             time.sleep(poll_interval)
 
-        log(
-            "Results (N) is available, but the lower MetaStock result "
-            "DataGrid did not materialize through UIA within "
-            f"{timeout:.2f} seconds. "
-            "Skipping further grid UIA inspection and switching to the "
-            "calibrated result_first_row recovery path. "
-            f"expected_rows={expected_count}; "
-            f"last UIA error={last_error}"
+        self._log_result_surface_snapshot(
+            execution_window
         )
-        return None
+
+        raise RuntimeError(
+            "Results (N) was available, but the lower "
+            "MetaStock result DataGrid could not be found "
+            f"within {timeout:.1f} seconds. "
+            f"Expected AutomationId="
+            f"{RESULTS_GRID_AUTOMATION_ID!r}, "
+            f"expected_rows={expected_count}. "
+            f"Last UIA error: {last_error}"
+        )
 
     def _copy_full_results_table(
         self,
         *,
         execution_window: BaseWrapper,
-        grid: Optional[BaseWrapper],
+        grid: BaseWrapper,
         expected_count: int,
     ) -> tuple[
         dict[int, str],
@@ -360,30 +334,6 @@ class ExplorationResultScraper:
         result_row_fallback_attempted = False
         result_row_fallback_active = False
 
-        # If Results (N) exists but the grid never materialized through UIA,
-        # do not spend another fallback-delay interval retrying UIA. The
-        # calibrated point exists specifically for this condition.
-        if grid is None:
-            result_row_fallback_attempted = True
-            result_row_fallback_active = (
-                self._click_result_window_relative_calibrated_first_row(
-                    execution_window=execution_window,
-                    reason=(
-                        "Results (N) was found, but ResultsGridControl "
-                        "did not materialize through UIA."
-                    ),
-                )
-            )
-
-            if not result_row_fallback_active:
-                raise RuntimeError(
-                    "Results (N) was found, but the MetaStock result grid "
-                    "did not materialize through UIA and the calibrated "
-                    "result_first_row fallback is unavailable. "
-                    "Re-run coordinate calibration with a completed "
-                    "Exploration Execution result window open."
-                )
-
         try:
             while time.monotonic() < deadline:
                 attempt += 1
@@ -396,59 +346,22 @@ class ExplorationResultScraper:
                     pyperclip.copy(sentinel)
                     now = time.monotonic()
 
-                    # Existing delayed fallback remains useful when UIA found
-                    # the grid and activated it, but Ctrl+A/C still has not
-                    # produced the complete result table.
                     if (
-                        grid is not None
-                        and not result_row_fallback_attempted
+                        not result_row_fallback_attempted
                         and now >= fallback_at
                     ):
                         result_row_fallback_attempted = True
                         result_row_fallback_active = (
                             self._click_result_window_relative_calibrated_first_row(
                                 execution_window=execution_window,
-                                reason=(
-                                    "The UIA result grid was found, but "
-                                    "complete result-table copying did not "
-                                    "succeed within the fallback delay."
-                                ),
                             )
                         )
 
                     if not result_row_fallback_active:
-                        if grid is None:
-                            raise RuntimeError(
-                                "Internal result-capture state error: the "
-                                "UIA grid is unavailable and the calibrated "
-                                "result-row fallback is not active."
-                            )
-
-                        try:
-                            self._activate_results_grid(
-                                execution_window=execution_window,
-                                grid=grid,
-                            )
-
-                        except Exception as activation_error:
-                            # A materialized wrapper that cannot be activated is
-                            # another UIA failure mode. Recover immediately rather
-                            # than waiting for the delayed copy fallback.
-                            if not result_row_fallback_attempted:
-                                result_row_fallback_attempted = True
-                                result_row_fallback_active = (
-                                    self._click_result_window_relative_calibrated_first_row(
-                                        execution_window=execution_window,
-                                        reason=(
-                                            "The result grid materialized "
-                                            "through UIA, but UIA activation "
-                                            f"failed: {activation_error}"
-                                        ),
-                                    )
-                                )
-
-                            if not result_row_fallback_active:
-                                raise
+                        self._activate_results_grid(
+                            execution_window=execution_window,
+                            grid=grid,
+                        )
 
                     send_keys("^a", pause=0.05)
                     time.sleep(self.event_dispatch_delay)
@@ -506,11 +419,8 @@ class ExplorationResultScraper:
             f"{self.clipboard_timeout:.1f} seconds. "
             f"Expected rows={expected_count}, "
             f"last copied rows={last_row_count}, "
-            f"uia_grid_available={grid is not None}, "
             f"result-row fallback attempted="
             f"{result_row_fallback_attempted}, "
-            f"result-row fallback active="
-            f"{result_row_fallback_active}, "
             f"last error={last_error}"
         )
 
@@ -518,9 +428,6 @@ class ExplorationResultScraper:
         self,
         *,
         execution_window: BaseWrapper,
-        reason: str = (
-            "UIA result-grid activation/copy did not complete."
-        ),
     ) -> bool:
         # Use an exact pixel offset from the current result window.
         # Do not normalize, scale, or call CoordinateMapper.resolve().
@@ -562,9 +469,9 @@ class ExplorationResultScraper:
             return False
 
         log(
-            "Using calibrated first result-row fallback. "
-            f"Reason: {reason} "
-            "Clicking once relative to the result window: "
+            "Three seconds passed without a complete result-table "
+            "selection. Clicking the calibrated first result row once "
+            "relative to the result window: "
             f"offset=({offset_x},{offset_y}), absolute=({x},{y}); "
             "then selecting all."
         )
